@@ -1,0 +1,20 @@
+{
+  "type": "guardrail_benchmark",
+  "model": "claude-haiku-4-5",
+  "iterations": 5,
+  "direct_api": {
+    "total_ms": 581.0
+  },
+  "bedrock_no_guardrail": {
+    "total_ms": 1134.9,
+    "server_latency_ms": 782.4
+  },
+  "bedrock_with_guardrail": {
+    "total_ms": 1936.4,
+    "server_latency_ms": 1554.8
+  },
+  "guardrail_overhead": {
+    "total_ms": 801.5,
+    "server_side_ms": 772.4
+  }
+}
