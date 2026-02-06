@@ -1,0 +1,19 @@
+{
+  "name": "sre-latency",
+  "description": "SRE plugin to measure and compare Claude Code CLI performance across Anthropic Direct API and AWS Bedrock. Tracks TTFB, throughput, P50/P90/P99, and generates latency reports.",
+  "version": "2.2.0",
+  "author": {
+    "name": "Seth Ford",
+    "url": "https://github.com/sethford"
+  },
+  "repository": "https://github.com/sethford/sre-latency-monitor",
+  "license": "MIT",
+  "keywords": [
+    "sre",
+    "latency",
+    "bedrock",
+    "performance",
+    "monitoring",
+    "benchmark"
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "timestamp": "2026-02-06T04:50:41Z",
+  "environment": {
+    "hostname": "Seths-MacBook-Pro",
+    "os": "Darwin 15.6",
+    "arch": "arm64",
+    "client_region": "US/Pennsylvania"
+  },
+  "config": {
+    "prompt": "Count from 1 to 20, one number per line. Only output the numbers, nothing else.",
+    "max_tokens": 128,
+    "iterations": 5,
+    "warmup_discarded": 2,
+    "direct_model": "claude-haiku-4-5",
+    "bedrock_model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "bedrock_region": "us-east-1"
+  },
+  "providers": {
+    "anthropic_direct": {
+      "samples": 5,
+      "errors": 0,
+      "error_rate": 0,
+      "total_ms": {
+        "mean": 682.95,
+        "p50": 616.33,
+        "p90": 869.13,
+        "p99": 1007.53
+      },
+      "output_tokens_mean": 43,
+      "tps_mean": 66.74,
+      "ttfb_ms": {
+        "mean": 507.45,
+        "p50": 442.79,
+        "p90": 689.42
+      },
+      "ttft_ms": {
+        "mean": 530.15,
+        "p50": 464.29,
+        "p90": 710.92
+      },
+      "generation_ms": {
+        "mean": 152.8,
+        "p50": 141.13
+      }
+    },
+    "aws_bedrock": {}
+  },
+  "latency_budget": {
+    "direct_total_mean_ms": 682.95,
+    "direct_ttft_mean_ms": 530.15,
+    "direct_generation_mean_ms": 152.8,
+    "note": "Only Direct API data available. Set AWS credentials to compare with Bedrock."
+  },
+  "session_tool_budget": {
+    "total_calls": 48,
+    "total_tool_ms": 233613,
+    "by_category": {
+      "Bash": {
+        "calls": 29,
+        "total_ms": 69549,
+        "mean_ms": 2398.24
+      },
+      "CLI": {
+        "calls": 19,
+        "total_ms": 164064,
+        "mean_ms": 8634.95
+      }
+    }
+  }
+}

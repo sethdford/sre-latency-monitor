@@ -1,0 +1,9 @@
+*.jsonl
+firebase-debug.log
+.DS_Store
+node_modules/
+__pycache__/
+*.pyc
+
+# Temporary benchmark files
+/tmp/sre-bench/

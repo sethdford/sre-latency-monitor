@@ -1,0 +1,91 @@
+{
+  "timestamp": "2026-02-06T05:01:58Z",
+  "environment": {
+    "hostname": "Seths-MacBook-Pro",
+    "os": "Darwin 15.6",
+    "arch": "arm64",
+    "client_region": "US/Pennsylvania"
+  },
+  "config": {
+    "prompt": "Count from 1 to 20, one number per line. Only output the numbers, nothing else.",
+    "max_tokens": 128,
+    "iterations": 5,
+    "warmup_discarded": 2,
+    "direct_model": "claude-opus-4-6",
+    "bedrock_model": "us.anthropic.claude-opus-4-6-v1",
+    "bedrock_region": "us-east-1"
+  },
+  "providers": {
+    "anthropic_direct": {
+      "samples": 5,
+      "errors": 0,
+      "error_rate": 0,
+      "total_ms": {
+        "mean": 1890.53,
+        "p50": 1856.03,
+        "p90": 2047.22,
+        "p99": 2145.54
+      },
+      "output_tokens_mean": 43,
+      "tps_mean": 22.91,
+      "ttfb_ms": {
+        "mean": 1470.15,
+        "p50": 1475.84,
+        "p90": 1635.36
+      },
+      "ttft_ms": {
+        "mean": 1522.23,
+        "p50": 1519.32,
+        "p90": 1680.94
+      },
+      "generation_ms": {
+        "mean": 368.3,
+        "p50": 364.01
+      }
+    },
+    "aws_bedrock": {
+      "samples": 5,
+      "errors": 0,
+      "error_rate": 0,
+      "total_ms": {
+        "mean": 1830.23,
+        "p50": 1816.08,
+        "p90": 1899.36,
+        "p99": 1917.26
+      },
+      "output_tokens_mean": 43,
+      "tps_mean": 23.59,
+      "server_latency_ms": {
+        "mean": 1479.2,
+        "p50": 1461
+      },
+      "network_overhead_ms": {
+        "mean": 351.03,
+        "p50": 354.53
+      }
+    }
+  },
+  "latency_budget": {
+    "direct_total_mean_ms": 1890.53,
+    "bedrock_total_mean_ms": 1830.23,
+    "bedrock_overhead_ms": -60.3,
+    "bedrock_overhead_pct": -3.2,
+    "note": "bedrock_overhead includes: Bedrock routing, guardrails, network hops. Direct TTFT measures pure model latency."
+  },
+  "session_tool_budget": {
+    "total_calls": 65,
+    "total_tool_ms": 424454,
+    "by_category": {
+      "Bash": {
+        "calls": 45,
+        "total_ms": 122205,
+        "mean_ms": 2715.67
+      },
+      "CLI": {
+        "calls": 20,
+        "total_ms": 302249,
+        "mean_ms": 15112.45
+      }
+    }
+  }
+}
