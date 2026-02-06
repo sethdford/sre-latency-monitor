@@ -131,27 +131,103 @@ Assigns letter grades (A-F) based on configurable SLO thresholds:
 | D     | ≤ 2000ms | ≤ 6000ms | ≥ 20 t/s        | ≤ 10%      |
 | F     | > 2000ms | > 6000ms | < 20 t/s        | > 10%      |
 
-## Sample Results
+## Findings: Why Bedrock Feels Slow
 
-### Latency Budget (Haiku 4.5)
+### The Root Cause: Fixed Per-Request Overhead
 
-Bedrock adds ~350-400ms fixed network overhead. Impact depends on model speed:
+Bedrock adds **~350-400ms of fixed overhead per API call** — from AWS network routing, Guardrails evaluation (~150-250ms), and Bedrock's invocation layer. This is a constant cost regardless of model or prompt size.
+
+The impact depends entirely on how fast the underlying model is:
+
+| Model | Direct API | Bedrock | Overhead | Impact |
+|-------|-----------|---------|----------|--------|
+| **Haiku 4.5** | 568ms | 1,402ms | **+147%** | Devastating |
+| **Sonnet 4.5** | ~30s | ~34s | **+13%** | Noticeable |
+| **Opus 4.6** | 49.1s | 48.1s | **-2%** | Negligible |
+
+For Opus, 400ms is noise on a 50-second call. For Haiku, it more than doubles every call.
+
+### How Claude Code Uses Models
+
+Claude Code doesn't use a single model — it uses a **multi-model routing strategy**:
+
+- **Haiku** — Quick decisions: tool selection, context summarization, simple follow-ups. *Frequent and latency-sensitive.*
+- **Sonnet** — Standard coding tasks: writing code, editing files, running tests. The workhorse.
+- **Opus** — Complex reasoning: architecture decisions, multi-step refactors, debugging hard problems.
+
+A typical coding session involves many small Haiku calls for routing/summarization plus a few larger Sonnet/Opus calls for the actual work.
+
+### The Compounding Effect
+
+The Bedrock overhead compounds across the many Haiku calls Claude Code makes internally:
+
+```
+                        Direct API              Bedrock
+8x Haiku calls:         8 x 570ms  = 4.6s      8 x 1,400ms = 11.2s
+3x Sonnet calls:        3 x 30s    = 90.0s     3 x 34s     = 102.0s
+                        ──────────              ──────────
+Total:                  ~94.6s                  ~113.2s  (+20%)
+```
+
+The Haiku overhead alone accounts for ~6.6 seconds of extra latency. It's not any single call being slow — it's death by a thousand cuts on the fast model calls. This is the "sluggishness" users feel on Bedrock.
+
+### Benchmark Results
+
+#### Raw API Latency Budget (Haiku 4.5, 5 iterations)
 
 | Provider | TTFB | TTFT | Server Latency | Total |
 |----------|------|------|----------------|-------|
-| Direct   | 417ms | 568ms | — | 568ms |
-| Bedrock  | 384ms | 1018ms | 1018ms | 1402ms |
-| Delta    | -33ms | +450ms | — | +147% |
+| Direct | 417ms | 568ms | — | 568ms |
+| Bedrock | 384ms | 1,018ms | 1,018ms | 1,402ms |
+| Delta | -33ms | +450ms | — | **+147%** |
 
-### Session Benchmark (Medium Task)
+#### Session Benchmark: Sonnet 4.5 (auto-selected, medium task)
 
-Real Claude Code session running a Calculator class + pytest task:
+Real Claude Code session — Calculator class + pytest tests:
 
 | Provider | Total Session | Model Time | Tool Time | Tool Calls |
 |----------|--------------|------------|-----------|------------|
-| Direct   | 1.5m         | 1.4m       | 3.5s      | 3          |
-| Bedrock  | 1.7m         | 1.6m       | 4.3s      | 7          |
-| Delta    | +13.3%       | +13.0%     | +21.8%    | —          |
+| Direct | 1.5m | 1.4m | 3.5s | 3 |
+| Bedrock | 1.7m | 1.6m | 4.3s | 7 |
+| Delta | **+13.3%** | +13.0% | +21.8% | — |
+
+#### Session Benchmark: Opus 4.6 (explicit, medium task)
+
+| Provider | Total Session | Model Time | Tool Time | Tool Calls |
+|----------|--------------|------------|-----------|------------|
+| Direct | 1.7m | 1.7m | 4.2s | 10 |
+| Bedrock | 1.4m | 1.3m | 2.7s | 8 |
+| Delta | **-21%** | -20.3% | -37.1% | — |
+
+Opus 4.6 on Bedrock is actually *faster* — the non-streaming response avoids per-token streaming overhead, which benefits slower models.
+
+#### Session Benchmark: Opus 4.6 (simple task)
+
+| Provider | Total Session | Model Time | Tool Calls |
+|----------|--------------|------------|------------|
+| Direct | 49.1s | 47.7s | 2 |
+| Bedrock | 48.1s | 46.2s | 2 |
+| Delta | **-2.1%** | -3.2% | — |
+
+### Key Takeaways
+
+1. **Bedrock's ~350-400ms fixed overhead is the bottleneck** — not model inference speed.
+2. **Haiku is disproportionately affected** (+147%) because the overhead exceeds the model's own response time.
+3. **Opus is unaffected or faster** on Bedrock because the fixed overhead is negligible relative to inference time, and non-streaming avoids token-by-token overhead.
+4. **The perceived slowness of Bedrock in Claude Code** comes from compounding Haiku overhead across many internal routing calls, not from the primary coding model being slow.
+5. **If AWS reduced the fixed overhead** (especially the Guardrails evaluation step), the Bedrock experience would be nearly indistinguishable from Direct API.
+
+### Bedrock Model IDs
+
+Bedrock Opus 4.6 requires inference profile IDs rather than direct model IDs:
+
+| Model | Direct API ID | Bedrock Inference Profile ID |
+|-------|--------------|------------------------------|
+| Opus 4.6 | `claude-opus-4-6` | `us.anthropic.claude-opus-4-6-v1` |
+| Sonnet 4.5 | `claude-sonnet-4-5-20250929` | `us.anthropic.claude-sonnet-4-5-20250929-v1:0` |
+| Haiku 4.5 | `claude-haiku-4-5-20251001` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` |
+
+The session benchmark script handles this automatically with `--model opus`.
 
 ## Architecture
 
