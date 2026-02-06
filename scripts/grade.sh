@@ -1,6 +1,7 @@
 #!/bin/bash
 # SRE Grade Calculator — assigns health grades (A-F) to benchmark results
 # Pure jq, no Python. Reads benchmark JSON and grades against SLO thresholds.
+# Supports both benchmark.sh (.summary) and latency_budget.sh (.providers) schemas.
 
 set -eo pipefail
 
@@ -32,7 +33,33 @@ else
 fi
 
 # Grade all providers using jq
+# Auto-detects schema: .summary (benchmark.sh) or .providers (latency_budget.sh)
 jq -r --argjson thresholds "$THRESHOLDS" '
+  # Normalize: convert latency_budget .providers schema to .summary format
+  def normalize:
+    if .summary then .summary
+    elif .providers then
+      .providers | to_entries | map({
+        key: .key,
+        value: {
+          provider: .key,
+          model: (.value.model // "unknown"),
+          samples: (.value.samples // 0),
+          ttft_p50_ms:         (.value.ttft_ms.p50 // null),
+          ttft_p90_ms:         (.value.ttft_ms.p90 // null),
+          ttft_p99_ms:         (.value.ttft_ms.p99 // null),
+          ttft_mean_ms:        (.value.ttft_ms.mean // null),
+          total_p50_ms:        (.value.total_ms.p50 // null),
+          total_p90_ms:        (.value.total_ms.p90 // null),
+          total_p99_ms:        (.value.total_ms.p99 // null),
+          total_mean_ms:       (.value.total_ms.mean // null),
+          throughput_mean_tps: (.value.tps_mean // null),
+          error_rate:          (.value.error_rate // 0)
+        }
+      }) | from_entries
+    else error("Unknown schema: expected .summary or .providers")
+    end;
+
   # Grade a single metric value against thresholds
   def grade_metric(value; metric_thresholds; higher_is_better):
     if value == null then "—"
@@ -59,7 +86,7 @@ jq -r --argjson thresholds "$THRESHOLDS" '
     elif . == "F" then 4
     else -1 end;
 
-  .summary | to_entries | map(
+  normalize | to_entries | map(
     .key as $provider_key |
     .value as $s |
     {

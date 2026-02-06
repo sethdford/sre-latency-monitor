@@ -1,0 +1,133 @@
+{
+  "type": "session_benchmark",
+  "timestamp": "2026-02-06T11:45:30Z",
+  "environment": {
+    "hostname": "Seths-MacBook-Pro",
+    "os": "Darwin 15.6",
+    "arch": "arm64"
+  },
+  "task": {
+    "level": "complex",
+    "prompt": "Read the files in /tmp/sre-bench/legacy/ to understand the existing code. Then refactor the code: extract the data processing logic into a clean DataProcessor class in /tmp/sre-bench/processor.py with proper error handling and type hints. Create /tmp/sre-bench/test_processor.py with comprehensive pytest tests. Run the tests with: python3 -m pytest /tmp/sre-bench/test_processor.py -v"
+  },
+  "sessions": {
+    "anthropic_direct": {
+      "provider": "direct",
+      "label": "Anthropic Direct API",
+      "total_session_ms": 152726.616,
+      "model_time_ms": 147797.616,
+      "exit_code": 0,
+      "tool_budget": {
+        "total_calls": 9,
+        "total_tool_ms": 4929,
+        "by_category": {
+          "Bash": {
+            "calls": 4,
+            "total_ms": 4157,
+            "mean_ms": 1039.25,
+            "tools": [
+              "Bash"
+            ]
+          },
+          "CLI": {
+            "calls": 5,
+            "total_ms": 772,
+            "mean_ms": 154.4,
+            "tools": [
+              "Glob",
+              "Read",
+              "Write"
+            ]
+          }
+        },
+        "per_tool": {
+          "Bash": {
+            "calls": 4,
+            "total_ms": 4157,
+            "mean_ms": 1039.25
+          },
+          "Glob": {
+            "calls": 1,
+            "total_ms": 263,
+            "mean_ms": 263
+          },
+          "Read": {
+            "calls": 2,
+            "total_ms": 84,
+            "mean_ms": 42
+          },
+          "Write": {
+            "calls": 2,
+            "total_ms": 425,
+            "mean_ms": 212.5
+          }
+        }
+      }
+    },
+    "aws_bedrock": {
+      "provider": "bedrock",
+      "label": "AWS Bedrock (us-east-1)",
+      "total_session_ms": 152125.867,
+      "model_time_ms": 148678.867,
+      "exit_code": 0,
+      "tool_budget": {
+        "total_calls": 13,
+        "total_tool_ms": 3447,
+        "by_category": {
+          "Bash": {
+            "calls": 4,
+            "total_ms": 2790,
+            "mean_ms": 697.5,
+            "tools": [
+              "Bash"
+            ]
+          },
+          "CLI": {
+            "calls": 9,
+            "total_ms": 657,
+            "mean_ms": 73,
+            "tools": [
+              "Edit",
+              "Read",
+              "TodoWrite",
+              "Write"
+            ]
+          }
+        },
+        "per_tool": {
+          "Bash": {
+            "calls": 4,
+            "total_ms": 2790,
+            "mean_ms": 697.5
+          },
+          "Edit": {
+            "calls": 1,
+            "total_ms": 63,
+            "mean_ms": 63
+          },
+          "Read": {
+            "calls": 2,
+            "total_ms": 86,
+            "mean_ms": 43
+          },
+          "TodoWrite": {
+            "calls": 4,
+            "total_ms": 170,
+            "mean_ms": 42.5
+          },
+          "Write": {
+            "calls": 2,
+            "total_ms": 338,
+            "mean_ms": 169
+          }
+        }
+      }
+    }
+  },
+  "comparison": {
+    "total_delta_ms": -600.75,
+    "total_delta_pct": -0.4,
+    "model_delta_ms": 881.25,
+    "tool_delta_ms": -1482
+  }
+}
