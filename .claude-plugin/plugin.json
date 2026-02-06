@@ -4,9 +4,9 @@
   "version": "2.2.0",
   "author": {
     "name": "Seth Ford",
-    "url": "https://github.com/sethford"
+    "url": "https://github.com/sethdford"
   },
-  "repository": "https://github.com/sethford/sre-latency-monitor",
+  "repository": "https://github.com/sethdford/sre-latency-monitor",
   "license": "MIT",
   "keywords": [
     "sre",
