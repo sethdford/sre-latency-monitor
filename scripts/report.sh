@@ -37,7 +37,8 @@ fi
 
 # Format each report
 echo "$REPORTS" | jq -r '
-  # Normalize: convert latency_budget .providers schema to .summary format
+  # Normalize: convert any schema to .summary format
+  # Supports: benchmark.sh (.summary), latency_budget.sh (.providers), session_benchmark.sh (.sessions)
   def normalize:
     if .summary then {summary: .summary, config: .config, timestamp: .timestamp}
     elif .providers then
@@ -68,6 +69,25 @@ echo "$REPORTS" | jq -r '
         config: .config,
         timestamp: .timestamp
       }
+    elif .sessions then
+      {
+        summary: (
+          .sessions | to_entries | map({
+            key: .key,
+            value: {
+              provider: .value.label,
+              model: "auto",
+              samples: 1,
+              total_mean_ms:       .value.total_session_ms,
+              total_p50_ms:        .value.total_session_ms,
+              throughput_mean_tps: null,
+              error_rate:          (if .value.exit_code == 0 then 0 else 1 end)
+            }
+          }) | from_entries
+        ),
+        config: (.task // {}),
+        timestamp: .timestamp
+      }
     else {summary: {}, config: .config, timestamp: .timestamp}
     end;
 
@@ -77,7 +97,11 @@ echo "$REPORTS" | jq -r '
   .summary as $sum |
 
   "## Benchmark — \($ts)",
-  "Iterations: \($cfg.iterations // "?") | Model: \($cfg.direct_model // $cfg.prompt_size // "?") | Max tokens: \($cfg.max_tokens // "?")",
+  (if $cfg.level then
+    "Task: \($cfg.level) | Prompt: \($cfg.prompt // "?" | .[:80])"
+  else
+    "Iterations: \($cfg.iterations // "?") | Model: \($cfg.direct_model // $cfg.prompt_size // "?") | Max tokens: \($cfg.max_tokens // "?")"
+  end),
   "",
 
   # Build table

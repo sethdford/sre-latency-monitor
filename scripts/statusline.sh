@@ -33,8 +33,9 @@ fmt_dur() {
   fi
 }
 
-# Total session duration
-DUR_S=$((${DUR%.*} / 1000))
+# Total session duration (guard against empty/zero DUR)
+DUR_RAW=${DUR%.*}
+DUR_S=$(( ${DUR_RAW:-0} / 1000 ))
 T=$(fmt_dur $DUR_S)
 
 # Categorized tool time breakdown from hook JSONL

@@ -35,7 +35,8 @@ fi
 # Grade all providers using jq
 # Auto-detects schema: .summary (benchmark.sh) or .providers (latency_budget.sh)
 jq -r --argjson thresholds "$THRESHOLDS" '
-  # Normalize: convert latency_budget .providers schema to .summary format
+  # Normalize: convert any schema to .summary format
+  # Supports: benchmark.sh (.summary), latency_budget.sh (.providers), session_benchmark.sh (.sessions)
   def normalize:
     if .summary then .summary
     elif .providers then
@@ -57,7 +58,20 @@ jq -r --argjson thresholds "$THRESHOLDS" '
           error_rate:          (.value.error_rate // 0)
         }
       }) | from_entries
-    else error("Unknown schema: expected .summary or .providers")
+    elif .sessions then
+      .sessions | to_entries | map({
+        key: .key,
+        value: {
+          provider: .value.label,
+          model: "auto",
+          samples: 1,
+          total_mean_ms:       .value.total_session_ms,
+          total_p50_ms:        .value.total_session_ms,
+          throughput_mean_tps: null,
+          error_rate:          (if .value.exit_code == 0 then 0 else 1 end)
+        }
+      }) | from_entries
+    else error("Unknown schema: expected .summary, .providers, or .sessions")
     end;
 
   # Grade a single metric value against thresholds
