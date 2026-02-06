@@ -1,0 +1,103 @@
+{
+  "type": "session_benchmark",
+  "timestamp": "2026-02-06T11:26:55Z",
+  "environment": {
+    "hostname": "Seths-MacBook-Pro",
+    "os": "Darwin 15.6",
+    "arch": "arm64"
+  },
+  "task": {
+    "level": "simple",
+    "prompt": "Write a Python function called \"fibonacci\" in /tmp/sre-bench/fib.py that returns the nth Fibonacci number using iteration (not recursion). Include a docstring. Then verify it works by running: python3 -c \"import sys; sys.path.insert(0, \\\"/tmp/sre-bench\\\"); from fib import fibonacci; print([fibonacci(i) for i in range(10)])\""
+  },
+  "sessions": {
+    "anthropic_direct": {
+      "provider": "direct",
+      "label": "Anthropic Direct API",
+      "total_session_ms": 49128.104,
+      "model_time_ms": 47703.104,
+      "exit_code": 0,
+      "tool_budget": {
+        "total_calls": 2,
+        "total_tool_ms": 1425,
+        "by_category": {
+          "Bash": {
+            "calls": 1,
+            "total_ms": 1147,
+            "mean_ms": 1147,
+            "tools": [
+              "Bash"
+            ]
+          },
+          "CLI": {
+            "calls": 1,
+            "total_ms": 278,
+            "mean_ms": 278,
+            "tools": [
+              "Write"
+            ]
+          }
+        },
+        "per_tool": {
+          "Bash": {
+            "calls": 1,
+            "total_ms": 1147,
+            "mean_ms": 1147
+          },
+          "Write": {
+            "calls": 1,
+            "total_ms": 278,
+            "mean_ms": 278
+          }
+        }
+      }
+    },
+    "aws_bedrock": {
+      "provider": "bedrock",
+      "label": "AWS Bedrock (us-east-1)",
+      "total_session_ms": 48115.725,
+      "model_time_ms": 46181.725,
+      "exit_code": 0,
+      "tool_budget": {
+        "total_calls": 2,
+        "total_tool_ms": 1934,
+        "by_category": {
+          "Bash": {
+            "calls": 1,
+            "total_ms": 1671,
+            "mean_ms": 1671,
+            "tools": [
+              "Bash"
+            ]
+          },
+          "CLI": {
+            "calls": 1,
+            "total_ms": 263,
+            "mean_ms": 263,
+            "tools": [
+              "Write"
+            ]
+          }
+        },
+        "per_tool": {
+          "Bash": {
+            "calls": 1,
+            "total_ms": 1671,
+            "mean_ms": 1671
+          },
+          "Write": {
+            "calls": 1,
+            "total_ms": 263,
+            "mean_ms": 263
+          }
+        }
+      }
+    }
+  },
+  "comparison": {
+    "total_delta_ms": -1012.38,
+    "total_delta_pct": -2.1,
+    "model_delta_ms": -1521.38,
+    "tool_delta_ms": 509
+  }
+}

@@ -35,11 +35,63 @@ while [ $# -gt 0 ]; do
       echo "  simple   — Write a function + docstring (~2-3 tool calls)"
       echo "  medium   — Write a module with tests (~5-8 tool calls)"
       echo "  complex  — Read existing code, refactor, add tests (~10-15 tool calls)"
+      echo ""
+      echo "Models (short names auto-translated per provider):"
+      echo "  opus     — Opus 4.6 (Direct: claude-opus-4-6, Bedrock: us.anthropic.claude-opus-4-6-v1)"
+      echo "  sonnet   — Sonnet 4.5 (Direct: claude-sonnet-4-5-20250929, Bedrock: us.anthropic.claude-sonnet-4-5-20250929-v1:0)"
+      echo "  haiku    — Haiku 4.5 (Direct: claude-haiku-4-5-20251001, Bedrock: us.anthropic.claude-haiku-4-5-20251001-v1:0)"
       exit 0
       ;;
     *) shift ;;
   esac
 done
+
+# --- Model ID translation ---
+# Maps short names to provider-specific model IDs
+resolve_model_id() {
+  local provider="$1"
+  local model="$2"
+
+  if [ -z "$model" ]; then
+    echo ""
+    return
+  fi
+
+  # If it's already a full ID (contains dots or slashes), use as-is
+  if [[ "$model" == *.* ]] || [[ "$model" == */* ]]; then
+    echo "$model"
+    return
+  fi
+
+  # Short name translation
+  case "$model" in
+    opus|opus-4-6|opus46)
+      if [ "$provider" = "bedrock" ]; then
+        echo "us.anthropic.claude-opus-4-6-v1"
+      else
+        echo "claude-opus-4-6"
+      fi
+      ;;
+    sonnet|sonnet-4-5|sonnet45)
+      if [ "$provider" = "bedrock" ]; then
+        echo "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+      else
+        echo "claude-sonnet-4-5-20250929"
+      fi
+      ;;
+    haiku|haiku-4-5|haiku45)
+      if [ "$provider" = "bedrock" ]; then
+        echo "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+      else
+        echo "claude-haiku-4-5-20251001"
+      fi
+      ;;
+    *)
+      # Pass through unknown models as-is
+      echo "$model"
+      ;;
+  esac
+}
 
 # --- Timing utility ---
 ms_now() { perl -MTime::HiRes=time -e 'printf "%.3f", time()*1000'; }
@@ -159,8 +211,11 @@ run_session() {
   # --dangerously-skip-permissions allows tool use (Write/Bash/etc) without prompts
   # Safe here because we're writing to /tmp/sre-bench/ only
   local output exit_code=0
-  local model_flag=""
-  [ -n "$SESSION_MODEL" ] && model_flag="--model $SESSION_MODEL"
+  local resolved_model model_flag=""
+  resolved_model=$(resolve_model_id "$provider" "$SESSION_MODEL")
+  [ -n "$resolved_model" ] && model_flag="--model $resolved_model"
+
+  echo "  Model: ${resolved_model:-auto}" >&2
 
   if [ "$provider" = "bedrock" ]; then
     output=$(env \

@@ -1,0 +1,115 @@
+{
+  "type": "session_benchmark",
+  "timestamp": "2026-02-06T11:28:41Z",
+  "environment": {
+    "hostname": "Seths-MacBook-Pro",
+    "os": "Darwin 15.6",
+    "arch": "arm64"
+  },
+  "task": {
+    "level": "medium",
+    "prompt": "Create a Python module at /tmp/sre-bench/calculator.py with a Calculator class that supports add, subtract, multiply, divide (with ZeroDivisionError handling), and a history() method that returns the last 10 operations. Then create /tmp/sre-bench/test_calculator.py with pytest tests covering all operations including edge cases. Finally run the tests with: python3 -m pytest /tmp/sre-bench/test_calculator.py -v"
+  },
+  "sessions": {
+    "anthropic_direct": {
+      "provider": "direct",
+      "label": "Anthropic Direct API",
+      "total_session_ms": 103748.392,
+      "model_time_ms": 99507.392,
+      "exit_code": 0,
+      "tool_budget": {
+        "total_calls": 10,
+        "total_tool_ms": 4241,
+        "by_category": {
+          "Bash": {
+            "calls": 4,
+            "total_ms": 3743,
+            "mean_ms": 935.75,
+            "tools": [
+              "Bash"
+            ]
+          },
+          "CLI": {
+            "calls": 6,
+            "total_ms": 498,
+            "mean_ms": 83,
+            "tools": [
+              "TodoWrite",
+              "Write"
+            ]
+          }
+        },
+        "per_tool": {
+          "Bash": {
+            "calls": 4,
+            "total_ms": 3743,
+            "mean_ms": 935.75
+          },
+          "TodoWrite": {
+            "calls": 4,
+            "total_ms": 172,
+            "mean_ms": 43
+          },
+          "Write": {
+            "calls": 2,
+            "total_ms": 326,
+            "mean_ms": 163
+          }
+        }
+      }
+    },
+    "aws_bedrock": {
+      "provider": "bedrock",
+      "label": "AWS Bedrock (us-east-1)",
+      "total_session_ms": 81976.410,
+      "model_time_ms": 79294.410,
+      "exit_code": 0,
+      "tool_budget": {
+        "total_calls": 8,
+        "total_tool_ms": 2682,
+        "by_category": {
+          "Bash": {
+            "calls": 2,
+            "total_ms": 2209,
+            "mean_ms": 1104.5,
+            "tools": [
+              "Bash"
+            ]
+          },
+          "CLI": {
+            "calls": 6,
+            "total_ms": 473,
+            "mean_ms": 78.83,
+            "tools": [
+              "TodoWrite",
+              "Write"
+            ]
+          }
+        },
+        "per_tool": {
+          "Bash": {
+            "calls": 2,
+            "total_ms": 2209,
+            "mean_ms": 1104.5
+          },
+          "TodoWrite": {
+            "calls": 4,
+            "total_ms": 146,
+            "mean_ms": 36.5
+          },
+          "Write": {
+            "calls": 2,
+            "total_ms": 327,
+            "mean_ms": 163.5
+          }
+        }
+      }
+    }
+  },
+  "comparison": {
+    "total_delta_ms": -21771.98,
+    "total_delta_pct": -21,
+    "model_delta_ms": -20212.98,
+    "tool_delta_ms": -1559
+  }
+}
