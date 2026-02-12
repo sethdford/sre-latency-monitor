@@ -13,8 +13,9 @@ if [ -f "$START_FILE" ]; then
   DUR_MS=$(echo "($NOW - $START) * 1000" | bc 2>/dev/null | cut -d'.' -f1)
   rm -f "$START_FILE"
 
-  printf '{"event": "tool_call", "tool_name": "%s", "tool_use_id": "%s", "duration_ms": %s, "timestamp": "%s"}\n' \
-    "$TOOL_NAME" "$TID" "${DUR_MS:-0}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /tmp/sre-latency-monitor.jsonl 2>/dev/null
+  TS_MS=$(echo "$NOW * 1000" | bc 2>/dev/null | cut -d'.' -f1)
+  printf '{"event": "tool_call", "tool_name": "%s", "tool_use_id": "%s", "duration_ms": %s, "timestamp": "%s", "ts_ms": %s}\n' \
+    "$TOOL_NAME" "$TID" "${DUR_MS:-0}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${TS_MS:-0}" >> /tmp/sre-latency-monitor.jsonl 2>/dev/null
 fi
 
 echo '{}'

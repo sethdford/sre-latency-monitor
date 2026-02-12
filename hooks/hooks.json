@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "LOCK=/tmp/sre-latency-session.lock; if [ -f \"$LOCK\" ] && [ \"$(cat $LOCK 2>/dev/null)\" = \"$(date -u +%Y-%m-%dT%H:%M)\" ]; then echo '{\"additionalContext\":\"SRE Latency Monitor active.\"}'; exit 0; fi; date -u +%Y-%m-%dT%H:%M > \"$LOCK\"; rm -f /tmp/sre-latency-tool-start-* 2>/dev/null; mv /tmp/sre-latency-monitor.jsonl /tmp/sre-latency-monitor.prev.jsonl 2>/dev/null; echo '{\"event\":\"session_start\",\"timestamp\":\"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'\"}' > /tmp/sre-latency-monitor.jsonl 2>/dev/null; echo '{\"additionalContext\":\"SRE Latency Monitor active. Use /sre-latency:benchmark or /sre-latency:tool-timings.\"}'",
+            "command": "LOCK=/tmp/sre-latency-session.lock; if [ -f \"$LOCK\" ] && [ \"$(cat $LOCK 2>/dev/null)\" = \"$(date -u +%Y-%m-%dT%H:%M)\" ]; then echo '{\"additionalContext\":\"SRE Latency Monitor active.\"}'; exit 0; fi; date -u +%Y-%m-%dT%H:%M > \"$LOCK\"; rm -f /tmp/sre-latency-tool-start-* 2>/dev/null; mv /tmp/sre-latency-monitor.jsonl /tmp/sre-latency-monitor.prev.jsonl 2>/dev/null; TS_MS=$(perl -MTime::HiRes=time -e 'printf \"%.0f\", time()*1000'); echo '{\"event\":\"session_start\",\"timestamp\":\"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'\",\"ts_ms\":'$TS_MS'}' > /tmp/sre-latency-monitor.jsonl 2>/dev/null; echo '{\"additionalContext\":\"SRE Latency Monitor active. Use /sre-latency:benchmark or /sre-latency:tool-timings.\"}'",
             "statusMessage": "Initializing SRE Latency Monitor"
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "TID=$(jq -r '.tool_use_id // \"unknown\"'); perl -MTime::HiRes=time -e 'printf \"%.6f\", time()' > \"/tmp/sre-latency-tool-start-$TID\" 2>/dev/null; echo '{}'"
+            "command": "INPUT=$(cat); TID=$(echo \"$INPUT\" | jq -r '.tool_use_id // \"unknown\"'); TNAME=$(echo \"$INPUT\" | jq -r '.tool_name // \"unknown\"'); NOW=$(perl -MTime::HiRes=time -e 'printf \"%.6f\", time()'); echo \"$NOW\" > \"/tmp/sre-latency-tool-start-$TID\" 2>/dev/null; TS_MS=$(echo \"$NOW * 1000\" | bc 2>/dev/null | cut -d'.' -f1); printf '{\"event\":\"pre_tool\",\"tool_name\":\"%s\",\"tool_use_id\":\"%s\",\"ts_ms\":%s}\\n' \"$TNAME\" \"$TID\" \"$TS_MS\" >> /tmp/sre-latency-monitor.jsonl 2>/dev/null; echo '{}'"
           }
         ]
       }
