@@ -154,7 +154,7 @@ run_direct_timed() {
 }
 
 # ============================================================================
-# AWS Bedrock — non-streaming (total latency measurement)
+# AWS Bedrock — streaming via converse-stream (detailed timing)
 # ============================================================================
 run_bedrock_timed() {
   local iter="$1"
@@ -164,48 +164,78 @@ run_bedrock_timed() {
     return
   fi
 
-  local t_start t_end response
+  local t_start t_first_byte="" t_first_token="" t_end
+  local output_tokens=0 input_tokens=0 token_chunks=0 server_latency=0
 
   t_start=$(ms_now)
 
-  response=$(aws bedrock-runtime converse \
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+
+    # Mark first byte (any output from the stream)
+    if [ -z "$t_first_byte" ]; then
+      t_first_byte=$(ms_now)
+    fi
+
+    # Detect contentBlockDelta for TTFT (fast string match, no jq)
+    if [[ "$line" == *'"contentBlockDelta"'* ]]; then
+      if [ -z "$t_first_token" ]; then
+        t_first_token=$(ms_now)
+      fi
+      token_chunks=$((token_chunks + 1))
+    fi
+
+    # Extract usage and server metrics from metadata event
+    if [[ "$line" == *'"metadata"'* ]]; then
+      output_tokens=$(echo "$line" | jq -r '.metadata.usage.outputTokens // 0' 2>/dev/null)
+      input_tokens=$(echo "$line" | jq -r '.metadata.usage.inputTokens // 0' 2>/dev/null)
+      server_latency=$(echo "$line" | jq -r '.metadata.metrics.latencyMs // 0' 2>/dev/null)
+    fi
+  done < <(aws bedrock-runtime converse-stream \
     --model-id "$BEDROCK_MODEL" \
     --messages "[{\"role\":\"user\",\"content\":[{\"text\":\"$PROMPT\"}]}]" \
     --inference-config "{\"maxTokens\":$MAX_TOKENS}" \
-    --region "$BEDROCK_REGION" \
-    --output json 2>&1) || {
-    t_end=$(ms_now)
-    local total_ms=$(echo "$t_end - $t_start" | bc)
-    jq -nc --argjson t "$total_ms" --arg e "$response" \
-      '{total_ms:$t, error:$e}' > "$TMPDIR/bedrock_${iter}.json"
-    return
-  }
+    --region "$BEDROCK_REGION" 2>"$TMPDIR/bedrock_err_${iter}")
 
   t_end=$(ms_now)
-  local total_ms output_tokens input_tokens tps latency_ms
+
+  # Check for errors (no events received, or stderr output)
+  if [ -z "$t_first_byte" ]; then
+    local err_msg="No streaming events received"
+    [ -s "$TMPDIR/bedrock_err_${iter}" ] && err_msg=$(cat "$TMPDIR/bedrock_err_${iter}" | head -5)
+    jq -nc --arg e "$err_msg" '{error:$e}' > "$TMPDIR/bedrock_${iter}.json"
+    return
+  fi
+
+  # Compute all timing components
+  local total_ms ttfb_ms ttft_ms generation_ms network_ms tps
   total_ms=$(echo "$t_end - $t_start" | bc)
-  output_tokens=$(echo "$response" | jq -r '.usage.outputTokens // 0')
-  input_tokens=$(echo "$response" | jq -r '.usage.inputTokens // 0')
-  # Bedrock returns server-side latency in metrics
-  latency_ms=$(echo "$response" | jq -r '.metrics.latencyMs // 0')
+  ttfb_ms=$(echo "${t_first_byte:-$t_end} - $t_start" | bc)
+  ttft_ms=$(echo "${t_first_token:-$t_end} - $t_start" | bc)
+  generation_ms=$(echo "$t_end - ${t_first_token:-$t_start}" | bc)
   tps=$(echo "scale=2; ${output_tokens:-0} / (${total_ms:-1} / 1000)" | bc 2>/dev/null || echo "0")
 
-  # Network overhead = total - server latency
-  local network_ms=0
-  if [ "$latency_ms" != "0" ] && [ "$latency_ms" != "null" ]; then
-    network_ms=$(echo "$total_ms - $latency_ms" | bc)
+  # Network overhead = total - server latency (if available)
+  network_ms=0
+  if [ "$server_latency" != "0" ] && [ "$server_latency" != "null" ]; then
+    network_ms=$(echo "$total_ms - $server_latency" | bc)
   fi
 
   jq -nc \
     --argjson total "$total_ms" \
-    --argjson server "$latency_ms" \
+    --argjson ttfb "$ttfb_ms" \
+    --argjson ttft "$ttft_ms" \
+    --argjson gen "$generation_ms" \
+    --argjson server "$server_latency" \
     --argjson network "$network_ms" \
     --argjson in_tok "${input_tokens:-0}" \
     --argjson out_tok "${output_tokens:-0}" \
+    --argjson chunks "$token_chunks" \
     --argjson tps "$tps" \
-    '{total_ms:$total, server_latency_ms:$server, network_overhead_ms:$network,
-      input_tokens:$in_tok, output_tokens:$out_tok, tokens_per_second:$tps}' \
-    > "$TMPDIR/bedrock_${iter}.json"
+    '{total_ms:$total, ttfb_ms:$ttfb, ttft_ms:$ttft, generation_ms:$gen,
+      server_latency_ms:$server, network_overhead_ms:$network,
+      input_tokens:$in_tok, output_tokens:$out_tok, token_chunks:$chunks,
+      tokens_per_second:$tps}' > "$TMPDIR/bedrock_${iter}.json"
 }
 
 # ============================================================================
@@ -290,9 +320,10 @@ if [ "$HAS_BEDROCK" = "true" ]; then
     if [ -n "$err" ]; then
       echo " ERROR: $err" >&2
     else
+      ttft=$(echo "$result" | jq -r '.ttft_ms')
       total=$(echo "$result" | jq -r '.total_ms')
       server=$(echo "$result" | jq -r '.server_latency_ms')
-      echo " Total=${total}ms Server=${server}ms" >&2
+      echo " TTFT=${ttft}ms Total=${total}ms Server=${server}ms" >&2
     fi
     [ "$i" -lt "$TOTAL_RUNS" ] && sleep 1
   done
@@ -479,9 +510,18 @@ REPORT=$(jq -nc \
         direct_total_mean_ms: $direct.total_ms.mean,
         bedrock_total_mean_ms: $bedrock.total_ms.mean,
         bedrock_overhead_ms: (($bedrock.total_ms.mean - $direct.total_ms.mean) | . * 100 | round / 100),
-        bedrock_overhead_pct: ((($bedrock.total_ms.mean - $direct.total_ms.mean) / $direct.total_ms.mean * 100) | . * 10 | round / 10),
-        note: "bedrock_overhead includes: Bedrock routing, guardrails, network hops. Direct TTFT measures pure model latency."
+        bedrock_overhead_pct: ((($bedrock.total_ms.mean - $direct.total_ms.mean) / $direct.total_ms.mean * 100) | . * 10 | round / 10)
       }
+      # Add TTFT comparison when both providers have streaming data
+      + (if ($direct.ttft_ms.mean // 0) > 0 and ($bedrock.ttft_ms.mean // 0) > 0 then {
+          direct_ttft_mean_ms: $direct.ttft_ms.mean,
+          bedrock_ttft_mean_ms: $bedrock.ttft_ms.mean,
+          ttft_overhead_ms: (($bedrock.ttft_ms.mean - $direct.ttft_ms.mean) | . * 100 | round / 100),
+          ttft_overhead_pct: ((($bedrock.ttft_ms.mean - $direct.ttft_ms.mean) / $direct.ttft_ms.mean * 100) | . * 10 | round / 10),
+          note: "Both providers measured via streaming. TTFT overhead isolates Bedrock routing/guardrails cost before token generation begins."
+        } else {
+          note: "bedrock_overhead includes: Bedrock routing, guardrails, network hops. Direct TTFT measures pure model latency."
+        } end)
       elif ($direct != {} and ($direct.total_ms.mean // 0) > 0) then
       {
         direct_total_mean_ms: $direct.total_ms.mean,

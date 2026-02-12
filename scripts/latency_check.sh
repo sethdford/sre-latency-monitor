@@ -110,7 +110,7 @@ check_direct() {
   fi
 }
 
-# --- AWS Bedrock (aws CLI) ---
+# --- AWS Bedrock (streaming via converse-stream) ---
 check_bedrock() {
   local model="${MODEL:-us.anthropic.claude-haiku-4-5-20251001-v1:0}"
 
@@ -120,41 +120,52 @@ check_bedrock() {
     return
   fi
 
-  local start end total response
+  local start ttft="" output_tokens=0 input_tokens=0
   start=$(ms_now)
 
-  # Use converse for reliable JSON output
-  response=$(aws bedrock-runtime converse \
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+
+    # TTFT: first contentBlockDelta event
+    if [[ "$line" == *'"contentBlockDelta"'* && -z "$ttft" ]]; then
+      ttft=$(echo "$(ms_now) - $start" | bc)
+    fi
+
+    # Extract usage from metadata event
+    if [[ "$line" == *'"metadata"'* ]]; then
+      output_tokens=$(echo "$line" | jq -r '.metadata.usage.outputTokens // 0' 2>/dev/null)
+      input_tokens=$(echo "$line" | jq -r '.metadata.usage.inputTokens // 0' 2>/dev/null)
+    fi
+  done < <(aws bedrock-runtime converse-stream \
     --model-id "$model" \
     --messages "[{\"role\":\"user\",\"content\":[{\"text\":\"$PROMPT\"}]}]" \
     --inference-config "{\"maxTokens\":$MAX_TOKENS}" \
-    --region "$BEDROCK_REGION" \
-    --output json 2>&1) || {
-    end=$(ms_now)
-    total=$(echo "$end - $start" | bc)
-    jq -nc --arg m "$model" --argjson t "${total:-0}" --arg e "$response" \
-      '{provider:"aws-bedrock", model:$m, status:"error", total_ms:$t, error:$e}'
-    return
-  }
+    --region "$BEDROCK_REGION" 2>/dev/null)
 
+  local end total tps
   end=$(ms_now)
   total=$(echo "$end - $start" | bc)
 
-  local output_tokens input_tokens tps
-  output_tokens=$(echo "$response" | jq -r '.usage.outputTokens // 0')
-  input_tokens=$(echo "$response" | jq -r '.usage.inputTokens // 0')
+  if [ -z "$ttft" ] && [ "${output_tokens:-0}" = "0" ]; then
+    jq -nc --arg m "$model" --argjson t "${total:-0}" \
+      '{provider:"aws-bedrock", model:$m, status:"error", total_ms:$t, error:"No streaming events received (check converse-stream support)"}'
+    return
+  fi
+
   tps=$(echo "scale=2; ${output_tokens:-0} / (${total:-1} / 1000)" | bc 2>/dev/null || echo "0")
 
   jq -nc --arg m "$model" \
-    --argjson total "${total:-0}" \
+    --argjson ttft "${ttft:-$total}" --argjson total "${total:-0}" \
     --argjson in_tok "${input_tokens:-0}" --argjson out_tok "${output_tokens:-0}" \
     --argjson tps "${tps:-0}" \
-    '{provider:"aws-bedrock", model:$m, status:"ok", ttft_ms:"N/A (non-streaming)", total_ms:$total, input_tokens:$in_tok, output_tokens:$out_tok, tokens_per_second:$tps}'
+    '{provider:"aws-bedrock", model:$m, status:"ok", ttft_ms:$ttft, total_ms:$total, input_tokens:$in_tok, output_tokens:$out_tok, tokens_per_second:$tps}'
 
-  # Persist total latency for statusline (bedrock doesn't have streaming TTFT)
-  jq -nc --arg m "$model" --argjson t "${total:-0}" \
-    '{provider:"aws-bedrock", model:$m, ttft_ms:$t, note:"total latency (non-streaming)", timestamp:now|strftime("%Y-%m-%dT%H:%M:%SZ")}' \
-    > /tmp/sre-latency-ttft.json 2>/dev/null
+  # Persist TTFT for statusline
+  if [ "${ttft:-0}" != "0" ]; then
+    jq -nc --arg m "$model" --argjson t "${ttft:-0}" \
+      '{provider:"aws-bedrock", model:$m, ttft_ms:$t, timestamp:now|strftime("%Y-%m-%dT%H:%M:%SZ")}' \
+      > /tmp/sre-latency-ttft.json 2>/dev/null
+  fi
 }
 
 # --- Main ---

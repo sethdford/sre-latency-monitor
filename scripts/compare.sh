@@ -128,13 +128,19 @@ echo "$REPORTS" | jq -r '
       ("─" * 20 + ($runs | [range(length)] | map(" ┼ " + ("─" * col_w)) | join(""))),
       (
         {
-          "Server latency":  [$runs[].providers.aws_bedrock.server_latency_ms.mean],
-          "Network overhead": [$runs[].providers.aws_bedrock.network_overhead_ms.mean],
-          "Total mean":       [$runs[].providers.aws_bedrock.total_ms.mean],
-          "Total P90":        [$runs[].providers.aws_bedrock.total_ms.p90],
-          "Throughput":       [$runs[].providers.aws_bedrock.tps_mean],
-          "Error rate":       [$runs[].providers.aws_bedrock.error_rate]
+          "TTFB mean":        [$runs[].providers.aws_bedrock.ttfb_ms.mean],
+          "TTFT mean":        [$runs[].providers.aws_bedrock.ttft_ms.mean],
+          "TTFT P90":         [$runs[].providers.aws_bedrock.ttft_ms.p90],
+          "Generation":       [$runs[].providers.aws_bedrock.generation_ms.mean],
+          "Server latency":   [$runs[].providers.aws_bedrock.server_latency_ms.mean],
+          "Network overhead":  [$runs[].providers.aws_bedrock.network_overhead_ms.mean],
+          "Total mean":        [$runs[].providers.aws_bedrock.total_ms.mean],
+          "Total P90":         [$runs[].providers.aws_bedrock.total_ms.p90],
+          "Throughput":        [$runs[].providers.aws_bedrock.tps_mean],
+          "Error rate":        [$runs[].providers.aws_bedrock.error_rate]
         } | to_entries[] |
+        # Skip rows where all values are null (pre-streaming results lack TTFB/TTFT)
+        select(.value | any(. != null)) |
         .key as $label | .value as $vals |
         ([$label | pad(20)] +
          [$vals[] |
