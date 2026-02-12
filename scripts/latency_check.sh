@@ -7,6 +7,28 @@
 
 set -eo pipefail
 
+# --- Locate script directory (for helper scripts) ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- Bootstrap Python with boto3 for Bedrock streaming ---
+STREAM_PYTHON=""
+BOTO3_VENV="/tmp/sre-boto3-venv"
+find_stream_python() {
+  for p in python3 "$BOTO3_VENV/bin/python3"; do
+    if "$p" -c "import boto3" 2>/dev/null; then
+      STREAM_PYTHON="$p"
+      return 0
+    fi
+  done
+  if command -v python3 &>/dev/null; then
+    python3 -m venv "$BOTO3_VENV" 2>/dev/null && \
+      "$BOTO3_VENV/bin/pip" install -q boto3 2>/dev/null && \
+      STREAM_PYTHON="$BOTO3_VENV/bin/python3"
+    [ -n "$STREAM_PYTHON" ] && return 0
+  fi
+  return 1
+}
+
 # --- Argument parsing ---
 PROVIDER=""
 MODEL=""
@@ -110,7 +132,7 @@ check_direct() {
   fi
 }
 
-# --- AWS Bedrock (streaming via converse-stream) ---
+# --- AWS Bedrock (streaming via boto3, fallback to non-streaming converse) ---
 check_bedrock() {
   local model="${MODEL:-us.anthropic.claude-haiku-4-5-20251001-v1:0}"
 
@@ -120,27 +142,32 @@ check_bedrock() {
     return
   fi
 
+  # Try streaming first
+  find_stream_python
+  if [ -n "$STREAM_PYTHON" ]; then
+    _check_bedrock_streaming "$model"
+  else
+    _check_bedrock_nonstreaming "$model"
+  fi
+}
+
+_check_bedrock_streaming() {
+  local model="$1"
   local start ttft="" output_tokens=0 input_tokens=0
   start=$(ms_now)
 
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
-
-    # TTFT: first contentBlockDelta event
     if [[ "$line" == *'"contentBlockDelta"'* && -z "$ttft" ]]; then
       ttft=$(echo "$(ms_now) - $start" | bc)
     fi
-
-    # Extract usage from metadata event
     if [[ "$line" == *'"metadata"'* ]]; then
       output_tokens=$(echo "$line" | jq -r '.metadata.usage.outputTokens // 0' 2>/dev/null)
       input_tokens=$(echo "$line" | jq -r '.metadata.usage.inputTokens // 0' 2>/dev/null)
     fi
-  done < <(aws bedrock-runtime converse-stream \
-    --model-id "$model" \
-    --messages "[{\"role\":\"user\",\"content\":[{\"text\":\"$PROMPT\"}]}]" \
-    --inference-config "{\"maxTokens\":$MAX_TOKENS}" \
-    --region "$BEDROCK_REGION" 2>/dev/null)
+  done < <("$STREAM_PYTHON" "$SCRIPT_DIR/bedrock_stream.py" \
+    --model "$model" --region "$BEDROCK_REGION" \
+    --max-tokens "$MAX_TOKENS" --prompt "$PROMPT" 2>/dev/null)
 
   local end total tps
   end=$(ms_now)
@@ -148,7 +175,7 @@ check_bedrock() {
 
   if [ -z "$ttft" ] && [ "${output_tokens:-0}" = "0" ]; then
     jq -nc --arg m "$model" --argjson t "${total:-0}" \
-      '{provider:"aws-bedrock", model:$m, status:"error", total_ms:$t, error:"No streaming events received (check converse-stream support)"}'
+      '{provider:"aws-bedrock", model:$m, status:"error", total_ms:$t, error:"boto3 streaming returned no events"}'
     return
   fi
 
@@ -160,12 +187,48 @@ check_bedrock() {
     --argjson tps "${tps:-0}" \
     '{provider:"aws-bedrock", model:$m, status:"ok", ttft_ms:$ttft, total_ms:$total, input_tokens:$in_tok, output_tokens:$out_tok, tokens_per_second:$tps}'
 
-  # Persist TTFT for statusline
   if [ "${ttft:-0}" != "0" ]; then
     jq -nc --arg m "$model" --argjson t "${ttft:-0}" \
       '{provider:"aws-bedrock", model:$m, ttft_ms:$t, timestamp:now|strftime("%Y-%m-%dT%H:%M:%SZ")}' \
       > /tmp/sre-latency-ttft.json 2>/dev/null
   fi
+}
+
+_check_bedrock_nonstreaming() {
+  local model="$1"
+  local start end total response
+  start=$(ms_now)
+
+  response=$(aws bedrock-runtime converse \
+    --model-id "$model" \
+    --messages "[{\"role\":\"user\",\"content\":[{\"text\":\"$PROMPT\"}]}]" \
+    --inference-config "{\"maxTokens\":$MAX_TOKENS}" \
+    --region "$BEDROCK_REGION" \
+    --output json 2>&1) || {
+    end=$(ms_now)
+    total=$(echo "$end - $start" | bc)
+    jq -nc --arg m "$model" --argjson t "${total:-0}" --arg e "$response" \
+      '{provider:"aws-bedrock", model:$m, status:"error", total_ms:$t, error:$e}'
+    return
+  }
+
+  end=$(ms_now)
+  total=$(echo "$end - $start" | bc)
+
+  local output_tokens input_tokens tps
+  output_tokens=$(echo "$response" | jq -r '.usage.outputTokens // 0')
+  input_tokens=$(echo "$response" | jq -r '.usage.inputTokens // 0')
+  tps=$(echo "scale=2; ${output_tokens:-0} / (${total:-1} / 1000)" | bc 2>/dev/null || echo "0")
+
+  jq -nc --arg m "$model" \
+    --argjson total "${total:-0}" \
+    --argjson in_tok "${input_tokens:-0}" --argjson out_tok "${output_tokens:-0}" \
+    --argjson tps "${tps:-0}" \
+    '{provider:"aws-bedrock", model:$m, status:"ok", ttft_ms:"N/A (non-streaming)", total_ms:$total, input_tokens:$in_tok, output_tokens:$out_tok, tokens_per_second:$tps}'
+
+  jq -nc --arg m "$model" --argjson t "${total:-0}" \
+    '{provider:"aws-bedrock", model:$m, ttft_ms:$t, note:"total latency (non-streaming)", timestamp:now|strftime("%Y-%m-%dT%H:%M:%SZ")}' \
+    > /tmp/sre-latency-ttft.json 2>/dev/null
 }
 
 # --- Main ---

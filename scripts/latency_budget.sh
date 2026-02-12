@@ -23,8 +23,12 @@
 #
 # Requires: ANTHROPIC_API_KEY (for Direct), AWS credentials (for Bedrock)
 # Dependencies: bash, curl, jq, perl, aws CLI
+# Optional: python3 + boto3 (for Bedrock streaming TTFT measurement)
 
 set -eo pipefail
+
+# --- Locate script directory (for helper scripts) ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Defaults ---
 ITERATIONS=10
@@ -64,6 +68,28 @@ ms_now() { perl -MTime::HiRes=time -e 'printf "%.3f", time()*1000'; }
 # --- Temp directory ---
 TMPDIR=$(mktemp -d /tmp/sre-budget-XXXXXX)
 trap "rm -rf $TMPDIR" EXIT
+
+# --- Bootstrap Python with boto3 for Bedrock streaming ---
+STREAM_PYTHON=""
+BOTO3_VENV="/tmp/sre-boto3-venv"
+find_stream_python() {
+  # Check common locations for python3 with boto3
+  for p in python3 "$BOTO3_VENV/bin/python3"; do
+    if "$p" -c "import boto3" 2>/dev/null; then
+      STREAM_PYTHON="$p"
+      return 0
+    fi
+  done
+  # Auto-bootstrap a venv if python3 is available
+  if command -v python3 &>/dev/null; then
+    echo "  Installing boto3 for Bedrock streaming (one-time)..." >&2
+    python3 -m venv "$BOTO3_VENV" 2>/dev/null && \
+      "$BOTO3_VENV/bin/pip" install -q boto3 2>/dev/null && \
+      STREAM_PYTHON="$BOTO3_VENV/bin/python3"
+    [ -n "$STREAM_PYTHON" ] && return 0
+  fi
+  return 1
+}
 
 # ============================================================================
 # Anthropic Direct API — streaming with detailed timing
@@ -154,15 +180,11 @@ run_direct_timed() {
 }
 
 # ============================================================================
-# AWS Bedrock — streaming via converse-stream (detailed timing)
+# AWS Bedrock — streaming via boto3 converse_stream (detailed timing)
+# Falls back to non-streaming converse if boto3 is unavailable.
 # ============================================================================
-run_bedrock_timed() {
+run_bedrock_timed_streaming() {
   local iter="$1"
-
-  if ! command -v aws &>/dev/null; then
-    echo '{"error":"aws CLI not installed"}' > "$TMPDIR/bedrock_${iter}.json"
-    return
-  fi
 
   local t_start t_first_byte="" t_first_token="" t_end
   local output_tokens=0 input_tokens=0 token_chunks=0 server_latency=0
@@ -191,19 +213,16 @@ run_bedrock_timed() {
       input_tokens=$(echo "$line" | jq -r '.metadata.usage.inputTokens // 0' 2>/dev/null)
       server_latency=$(echo "$line" | jq -r '.metadata.metrics.latencyMs // 0' 2>/dev/null)
     fi
-  done < <(aws bedrock-runtime converse-stream \
-    --model-id "$BEDROCK_MODEL" \
-    --messages "[{\"role\":\"user\",\"content\":[{\"text\":\"$PROMPT\"}]}]" \
-    --inference-config "{\"maxTokens\":$MAX_TOKENS}" \
-    --region "$BEDROCK_REGION" 2>"$TMPDIR/bedrock_err_${iter}")
+  done < <("$STREAM_PYTHON" "$SCRIPT_DIR/bedrock_stream.py" \
+    --model "$BEDROCK_MODEL" --region "$BEDROCK_REGION" \
+    --max-tokens "$MAX_TOKENS" --prompt "$PROMPT" 2>/dev/null)
 
   t_end=$(ms_now)
 
-  # Check for errors (no events received, or stderr output)
+  # Check for errors
   if [ -z "$t_first_byte" ]; then
-    local err_msg="No streaming events received"
-    [ -s "$TMPDIR/bedrock_err_${iter}" ] && err_msg=$(cat "$TMPDIR/bedrock_err_${iter}" | head -5)
-    jq -nc --arg e "$err_msg" '{error:$e}' > "$TMPDIR/bedrock_${iter}.json"
+    jq -nc '{error:"No streaming events received from boto3 helper"}' \
+      > "$TMPDIR/bedrock_${iter}.json"
     return
   fi
 
@@ -236,6 +255,60 @@ run_bedrock_timed() {
       server_latency_ms:$server, network_overhead_ms:$network,
       input_tokens:$in_tok, output_tokens:$out_tok, token_chunks:$chunks,
       tokens_per_second:$tps}' > "$TMPDIR/bedrock_${iter}.json"
+}
+
+# Fallback: non-streaming converse (no TTFT, but always works)
+run_bedrock_timed_nonstreaming() {
+  local iter="$1"
+
+  local t_start t_end response
+  t_start=$(ms_now)
+
+  response=$(aws bedrock-runtime converse \
+    --model-id "$BEDROCK_MODEL" \
+    --messages "[{\"role\":\"user\",\"content\":[{\"text\":\"$PROMPT\"}]}]" \
+    --inference-config "{\"maxTokens\":$MAX_TOKENS}" \
+    --region "$BEDROCK_REGION" \
+    --output json 2>&1) || {
+    t_end=$(ms_now)
+    local total_ms=$(echo "$t_end - $t_start" | bc)
+    jq -nc --argjson t "$total_ms" --arg e "$response" \
+      '{total_ms:$t, error:$e}' > "$TMPDIR/bedrock_${iter}.json"
+    return
+  }
+
+  t_end=$(ms_now)
+  local total_ms output_tokens input_tokens tps latency_ms network_ms
+  total_ms=$(echo "$t_end - $t_start" | bc)
+  output_tokens=$(echo "$response" | jq -r '.usage.outputTokens // 0')
+  input_tokens=$(echo "$response" | jq -r '.usage.inputTokens // 0')
+  latency_ms=$(echo "$response" | jq -r '.metrics.latencyMs // 0')
+  tps=$(echo "scale=2; ${output_tokens:-0} / (${total_ms:-1} / 1000)" | bc 2>/dev/null || echo "0")
+
+  network_ms=0
+  if [ "$latency_ms" != "0" ] && [ "$latency_ms" != "null" ]; then
+    network_ms=$(echo "$total_ms - $latency_ms" | bc)
+  fi
+
+  jq -nc \
+    --argjson total "$total_ms" \
+    --argjson server "$latency_ms" \
+    --argjson network "$network_ms" \
+    --argjson in_tok "${input_tokens:-0}" \
+    --argjson out_tok "${output_tokens:-0}" \
+    --argjson tps "$tps" \
+    '{total_ms:$total, server_latency_ms:$server, network_overhead_ms:$network,
+      input_tokens:$in_tok, output_tokens:$out_tok, tokens_per_second:$tps}' \
+    > "$TMPDIR/bedrock_${iter}.json"
+}
+
+# Dispatcher: streaming if boto3 available, else non-streaming
+run_bedrock_timed() {
+  if [ -n "$STREAM_PYTHON" ]; then
+    run_bedrock_timed_streaming "$1"
+  else
+    run_bedrock_timed_nonstreaming "$1"
+  fi
 }
 
 # ============================================================================
@@ -279,6 +352,17 @@ if [ "$HAS_DIRECT" = "false" ] && [ "$HAS_BEDROCK" = "false" ]; then
   echo "  Direct API: set ANTHROPIC_API_KEY" >&2
   echo "  Bedrock: configure AWS credentials (aws sts get-caller-identity must succeed)" >&2
   exit 1
+fi
+
+# Attempt to enable Bedrock streaming via boto3
+if [ "$HAS_BEDROCK" = "true" ]; then
+  find_stream_python
+  if [ -n "$STREAM_PYTHON" ]; then
+    echo "  Bedrock mode: streaming (boto3 via $STREAM_PYTHON)" >&2
+  else
+    echo "  Bedrock mode: non-streaming (install boto3 for TTFT measurement)" >&2
+  fi
+  echo "" >&2
 fi
 
 # Run Direct API benchmark
