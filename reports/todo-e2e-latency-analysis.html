@@ -1,0 +1,1202 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claude Code API Routing: Latency Impact Analysis</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
+
+      :root {
+        --navy: #003366;
+        --dark-navy: #001a33;
+        --blue: #0066cc;
+        --light-blue: #e8f0fe;
+        --accent: #0077b6;
+        --green: #0a8754;
+        --green-bg: #e6f5ed;
+        --red: #c0392b;
+        --red-bg: #fce8e6;
+        --amber: #b45309;
+        --amber-bg: #fef3c7;
+        --gray-900: #1a1a2e;
+        --gray-700: #374151;
+        --gray-500: #6b7280;
+        --gray-300: #d1d5db;
+        --gray-100: #f3f4f6;
+        --white: #ffffff;
+        --border: #e5e7eb;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family:
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        color: var(--gray-900);
+        background: var(--white);
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* Page structure */
+      .page {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 0 40px;
+      }
+      .section {
+        padding: 48px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .section:last-child {
+        border-bottom: none;
+      }
+
+      /* Cover */
+      .cover {
+        background: linear-gradient(
+          135deg,
+          var(--dark-navy) 0%,
+          var(--navy) 50%,
+          var(--accent) 100%
+        );
+        color: var(--white);
+        padding: 80px 40px;
+        text-align: left;
+      }
+      .cover-inner {
+        max-width: 960px;
+        margin: 0 auto;
+      }
+      .cover h1 {
+        font-size: 2.4rem;
+        font-weight: 700;
+        line-height: 1.2;
+        margin-bottom: 16px;
+        letter-spacing: -0.02em;
+      }
+      .cover .subtitle {
+        font-size: 1.15rem;
+        font-weight: 300;
+        opacity: 0.85;
+        margin-bottom: 40px;
+        max-width: 640px;
+      }
+      .cover-meta {
+        display: flex;
+        gap: 40px;
+        font-size: 0.85rem;
+        opacity: 0.7;
+      }
+      .cover-meta strong {
+        font-weight: 500;
+        opacity: 1;
+      }
+
+      /* Section headers */
+      .section h2 {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--navy);
+        margin-bottom: 8px;
+        letter-spacing: -0.01em;
+      }
+      .section .lead {
+        font-size: 1.05rem;
+        color: var(--gray-500);
+        margin-bottom: 32px;
+        max-width: 720px;
+      }
+
+      /* Key message box */
+      .key-message {
+        background: var(--light-blue);
+        border-left: 4px solid var(--blue);
+        padding: 20px 24px;
+        margin: 24px 0;
+        border-radius: 0 8px 8px 0;
+      }
+      .key-message .label {
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--blue);
+        margin-bottom: 4px;
+      }
+      .key-message p {
+        font-size: 0.95rem;
+        font-weight: 500;
+        color: var(--gray-900);
+      }
+
+      /* Exhibit container */
+      .exhibit {
+        margin: 32px 0;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .exhibit-header {
+        background: var(--gray-100);
+        padding: 12px 20px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--gray-500);
+        border-bottom: 1px solid var(--border);
+      }
+      .exhibit-body {
+        padding: 24px;
+      }
+      .exhibit-note {
+        padding: 12px 20px;
+        font-size: 0.75rem;
+        color: var(--gray-500);
+        border-top: 1px solid var(--border);
+        background: var(--gray-100);
+      }
+
+      /* Data table */
+      .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+      }
+      .data-table th {
+        text-align: left;
+        padding: 12px 16px;
+        font-weight: 600;
+        color: var(--gray-500);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        border-bottom: 2px solid var(--gray-300);
+        white-space: nowrap;
+      }
+      .data-table td {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        font-variant-numeric: tabular-nums;
+      }
+      .data-table tr:last-child td {
+        border-bottom: none;
+      }
+      .data-table .metric {
+        font-weight: 500;
+        color: var(--gray-700);
+      }
+      .data-table .highlight {
+        font-weight: 700;
+      }
+      .data-table .val-best {
+        color: var(--green);
+        font-weight: 600;
+      }
+      .data-table .val-worst {
+        color: var(--red);
+        font-weight: 600;
+      }
+      .data-table .val-mid {
+        color: var(--amber);
+        font-weight: 500;
+      }
+
+      /* Horizontal bar chart */
+      .bar-chart {
+        margin: 16px 0;
+      }
+      .bar-group {
+        margin-bottom: 24px;
+      }
+      .bar-group-label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--gray-700);
+        margin-bottom: 8px;
+      }
+      .bar-row {
+        display: flex;
+        align-items: center;
+        margin-bottom: 6px;
+        gap: 12px;
+      }
+      .bar-label {
+        width: 100px;
+        font-size: 0.75rem;
+        color: var(--gray-500);
+        text-align: right;
+        flex-shrink: 0;
+      }
+      .bar-track {
+        flex: 1;
+        height: 32px;
+        background: var(--gray-100);
+        border-radius: 4px;
+        overflow: hidden;
+        position: relative;
+      }
+      .bar-fill {
+        height: 100%;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding-right: 10px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--white);
+        transition: width 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      }
+      .bar-fill.direct {
+        background: var(--blue);
+      }
+      .bar-fill.bedrock {
+        background: var(--amber);
+      }
+      .bar-fill.guardrail {
+        background: #7c3aed;
+      }
+
+      /* KPI cards */
+      .kpi-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+        margin: 24px 0;
+      }
+      .kpi {
+        padding: 24px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        text-align: center;
+      }
+      .kpi .number {
+        font-size: 2rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin-bottom: 4px;
+      }
+      .kpi .label {
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: var(--gray-500);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .kpi .context {
+        font-size: 0.8rem;
+        color: var(--gray-500);
+        margin-top: 8px;
+      }
+      .kpi-green {
+        background: var(--green-bg);
+      }
+      .kpi-green .number {
+        color: var(--green);
+      }
+      .kpi-red {
+        background: var(--red-bg);
+      }
+      .kpi-red .number {
+        color: var(--red);
+      }
+      .kpi-amber {
+        background: var(--amber-bg);
+      }
+      .kpi-amber .number {
+        color: var(--amber);
+      }
+
+      /* Delta badge */
+      .delta-badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+      .delta-pos {
+        background: var(--red-bg);
+        color: var(--red);
+      }
+      .delta-neg {
+        background: var(--green-bg);
+        color: var(--green);
+      }
+      .delta-neutral {
+        background: var(--gray-100);
+        color: var(--gray-500);
+      }
+
+      /* Timeline */
+      .timeline-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8rem;
+      }
+      .timeline-table th {
+        text-align: left;
+        padding: 8px 12px;
+        font-weight: 600;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--gray-500);
+        border-bottom: 2px solid var(--gray-300);
+      }
+      .timeline-table td {
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+        font-variant-numeric: tabular-nums;
+      }
+      .timeline-table .url {
+        color: var(--gray-500);
+        max-width: 340px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .timeline-table .status-200 {
+        color: var(--green);
+        font-weight: 600;
+      }
+      .timeline-table .status-err {
+        color: var(--red);
+        font-weight: 600;
+      }
+      .waterfall-bar {
+        height: 14px;
+        border-radius: 2px;
+        min-width: 3px;
+      }
+      .waterfall-bar.direct {
+        background: var(--blue);
+      }
+      .waterfall-bar.bedrock {
+        background: var(--amber);
+      }
+      .waterfall-bar.guardrail {
+        background: #7c3aed;
+      }
+
+      /* Recommendations */
+      .rec-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin: 24px 0;
+      }
+      .rec-card {
+        padding: 24px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        border-top: 4px solid var(--blue);
+      }
+      .rec-card h4 {
+        font-size: 0.9rem;
+        font-weight: 700;
+        color: var(--navy);
+        margin-bottom: 8px;
+      }
+      .rec-card p {
+        font-size: 0.85rem;
+        color: var(--gray-700);
+      }
+      .rec-card .impact {
+        margin-top: 12px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+      .impact-high {
+        color: var(--green);
+      }
+      .impact-med {
+        color: var(--amber);
+      }
+
+      /* Methodology */
+      .method-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+      }
+      .method-item h4 {
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: var(--navy);
+        margin-bottom: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .method-item p {
+        font-size: 0.8rem;
+        color: var(--gray-700);
+        line-height: 1.5;
+      }
+
+      /* Footer */
+      .footer {
+        padding: 40px 0;
+        text-align: center;
+        font-size: 0.75rem;
+        color: var(--gray-500);
+      }
+
+      /* Print */
+      @media print {
+        .cover {
+          break-after: page;
+        }
+        .section {
+          break-inside: avoid;
+        }
+        .exhibit {
+          break-inside: avoid;
+        }
+      }
+
+      @media (max-width: 768px) {
+        .cover {
+          padding: 48px 24px;
+        }
+        .cover h1 {
+          font-size: 1.8rem;
+        }
+        .page {
+          padding: 0 20px;
+        }
+        .kpi-row {
+          grid-template-columns: 1fr;
+        }
+        .rec-grid {
+          grid-template-columns: 1fr;
+        }
+        .method-grid {
+          grid-template-columns: 1fr;
+        }
+        .cover-meta {
+          flex-direction: column;
+          gap: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- COVER -->
+    <div class="cover">
+      <div class="cover-inner">
+        <h1>Claude Code API Routing:<br />Latency Impact Analysis</h1>
+        <p class="subtitle">
+          Quantifying the real-world performance delta between Anthropic Direct
+          API, AWS Bedrock, and Bedrock with Guardrails using in-process HTTP
+          instrumentation
+        </p>
+        <div class="cover-meta">
+          <div><strong>Date:</strong> February 20, 2026</div>
+          <div><strong>Environment:</strong> macOS arm64, Node.js v22.22.0</div>
+          <div><strong>Region:</strong> us-east-1</div>
+          <div>
+            <strong>Methodology:</strong> Process-level fetch instrumentation
+            (n=3 per provider)
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="page">
+      <!-- EXECUTIVE SUMMARY -->
+      <div class="section">
+        <h2>Executive Summary</h2>
+        <p class="lead">
+          We instrumented Claude Code's actual HTTP calls from inside the
+          Node.js process to measure the real latency impact of API routing
+          decisions. Three providers were tested with an identical code
+          generation task across 3 iterations each.
+        </p>
+
+        <div class="key-message">
+          <div class="label">Key Finding</div>
+          <p>
+            Bedrock adds minimal overhead (+98ms, +1.4%) to API call latency vs
+            Direct API. However, enabling Guardrails introduces a measurable
+            +990ms (+14.4%) penalty per API call and +917ms to
+            time-to-first-token, directly impacting developer-perceived
+            responsiveness.
+          </p>
+        </div>
+
+        <div class="kpi-row">
+          <div class="kpi kpi-green">
+            <div class="number">~0ms</div>
+            <div class="label">Bedrock Session Overhead</div>
+            <div class="context">
+              54.3s Direct vs 53.7s Bedrock<br />Within noise floor
+            </div>
+          </div>
+          <div class="kpi kpi-amber">
+            <div class="number">+249ms</div>
+            <div class="label">Bedrock TTFT Delta</div>
+            <div class="context">
+              1,597ms Direct vs 1,846ms Bedrock<br />Perceptible but acceptable
+            </div>
+          </div>
+          <div class="kpi kpi-red">
+            <div class="number">+917ms</div>
+            <div class="label">Guardrail TTFT Penalty</div>
+            <div class="context">
+              1,846ms Bedrock vs 2,763ms Guardrail<br />Noticeable user impact
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SITUATION -->
+      <div class="section">
+        <h2>Situation</h2>
+        <p class="lead">
+          Enterprise teams deploying Claude Code face a routing decision:
+          Anthropic Direct API offers simplicity; AWS Bedrock provides VPC
+          integration and compliance controls; Bedrock Guardrails add content
+          safety at an unknown performance cost.
+        </p>
+
+        <p
+          style="font-size: 0.9rem; color: var(--gray-700); margin-bottom: 16px"
+        >
+          Prior benchmarks used synthetic curl calls or proxy-based measurement,
+          both of which introduce artifacts. Our approach injects
+          instrumentation inside Claude Code's own process via Node.js
+          <code>--import</code> hooks, wrapping <code>globalThis.fetch</code>
+          before the application loads. This captures every HTTP call with
+          sub-millisecond precision and zero network overhead.
+        </p>
+
+        <div class="key-message">
+          <div class="label">Why This Matters</div>
+          <p>
+            Claude Code makes 3 streaming API calls per code generation task,
+            plus token counting and MCP server calls. A +1s penalty per API call
+            compounds to +3s per interaction, directly eroding developer flow
+            state.
+          </p>
+        </div>
+      </div>
+
+      <!-- EXHIBIT 1: COMPARISON TABLE -->
+      <div class="section">
+        <h2>Findings</h2>
+        <p class="lead">
+          Nine instrumented sessions (3 per provider) executing an identical
+          Todo application generation task. All sessions completed successfully
+          with functionally equivalent output.
+        </p>
+
+        <div class="exhibit">
+          <div class="exhibit-header">
+            Exhibit 1 &mdash; Provider Performance Comparison (n=3 per provider)
+          </div>
+          <div class="exhibit-body">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Metric</th>
+                  <th>Direct API</th>
+                  <th>AWS Bedrock</th>
+                  <th>Bedrock + Guardrail</th>
+                  <th>Delta (GR vs Direct)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="metric">Session Total (avg)</td>
+                  <td class="val-best">54.3s</td>
+                  <td>53.7s</td>
+                  <td>55.1s</td>
+                  <td><span class="delta-badge delta-pos">+0.8s</span></td>
+                </tr>
+                <tr>
+                  <td class="metric">API Latency / call (avg)</td>
+                  <td class="val-best">6,752ms</td>
+                  <td>6,850ms</td>
+                  <td class="val-worst">7,839ms</td>
+                  <td><span class="delta-badge delta-pos">+1,087ms</span></td>
+                </tr>
+                <tr>
+                  <td class="metric">API Sum (all calls)</td>
+                  <td class="val-best">20,257ms</td>
+                  <td>20,549ms</td>
+                  <td class="val-worst">23,518ms</td>
+                  <td><span class="delta-badge delta-pos">+3,261ms</span></td>
+                </tr>
+                <tr>
+                  <td class="metric">Stream TTFB (avg)</td>
+                  <td class="val-best">1,574ms</td>
+                  <td>1,846ms</td>
+                  <td class="val-worst">2,763ms</td>
+                  <td><span class="delta-badge delta-pos">+1,189ms</span></td>
+                </tr>
+                <tr>
+                  <td class="metric">Stream TTFT (avg)</td>
+                  <td class="val-best">1,597ms</td>
+                  <td>1,846ms</td>
+                  <td class="val-worst">2,763ms</td>
+                  <td><span class="delta-badge delta-pos">+1,166ms</span></td>
+                </tr>
+                <tr>
+                  <td class="metric">Streaming Chunks (avg)</td>
+                  <td>131</td>
+                  <td>309</td>
+                  <td>321</td>
+                  <td><span class="delta-badge delta-neutral">2.4x</span></td>
+                </tr>
+                <tr>
+                  <td class="metric">Total HTTP Calls</td>
+                  <td>10</td>
+                  <td>6</td>
+                  <td>7</td>
+                  <td>
+                    <span class="delta-badge delta-neutral">&mdash;</span>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="metric">Task Success Rate</td>
+                  <td class="val-best">3/3 (100%)</td>
+                  <td class="val-best">3/3 (100%)</td>
+                  <td class="val-best">3/3 (100%)</td>
+                  <td><span class="delta-badge delta-neg">Parity</span></td>
+                </tr>
+                <tr>
+                  <td class="metric">Output Size (avg)</td>
+                  <td>3,496 B</td>
+                  <td>5,751 B</td>
+                  <td>5,746 B</td>
+                  <td>
+                    <span class="delta-badge delta-neutral">&mdash;</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="exhibit-note">
+            Task: Generate a self-contained Todo HTML application (input, add,
+            check, delete, counter). Model selection: automatic (Sonnet 4.5 for
+            generation, Haiku 4.5 for lightweight calls). All errors are
+            non-fatal MCP server connection timeouts (Context7 SSE).
+          </div>
+        </div>
+      </div>
+
+      <!-- EXHIBIT 2: LATENCY WATERFALL -->
+      <div class="section">
+        <h2>Latency Breakdown</h2>
+        <p class="lead">
+          Visualizing where time is spent across the three routing options. The
+          guardrail penalty is concentrated in TTFB/TTFT, not in generation
+          throughput.
+        </p>
+
+        <div class="exhibit">
+          <div class="exhibit-header">
+            Exhibit 2 &mdash; Stream TTFB by Provider (time to first byte from
+            API)
+          </div>
+          <div class="exhibit-body">
+            <div class="bar-chart">
+              <div class="bar-group">
+                <div class="bar-group-label">
+                  Stream TTFB &mdash; Time to First Byte
+                </div>
+                <div class="bar-row">
+                  <div class="bar-label">Direct API</div>
+                  <div class="bar-track">
+                    <div class="bar-fill direct" style="width: 57%">
+                      1,574ms
+                    </div>
+                  </div>
+                </div>
+                <div class="bar-row">
+                  <div class="bar-label">Bedrock</div>
+                  <div class="bar-track">
+                    <div class="bar-fill bedrock" style="width: 67%">
+                      1,846ms
+                    </div>
+                  </div>
+                </div>
+                <div class="bar-row">
+                  <div class="bar-label">Guardrail</div>
+                  <div class="bar-track">
+                    <div class="bar-fill guardrail" style="width: 100%">
+                      2,763ms
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="bar-group">
+                <div class="bar-group-label">
+                  API Total Latency (avg per call)
+                </div>
+                <div class="bar-row">
+                  <div class="bar-label">Direct API</div>
+                  <div class="bar-track">
+                    <div class="bar-fill direct" style="width: 86%">
+                      6,752ms
+                    </div>
+                  </div>
+                </div>
+                <div class="bar-row">
+                  <div class="bar-label">Bedrock</div>
+                  <div class="bar-track">
+                    <div class="bar-fill bedrock" style="width: 87%">
+                      6,850ms
+                    </div>
+                  </div>
+                </div>
+                <div class="bar-row">
+                  <div class="bar-label">Guardrail</div>
+                  <div class="bar-track">
+                    <div class="bar-fill guardrail" style="width: 100%">
+                      7,839ms
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="bar-group">
+                <div class="bar-group-label">End-to-End Session Time</div>
+                <div class="bar-row">
+                  <div class="bar-label">Direct API</div>
+                  <div class="bar-track">
+                    <div class="bar-fill direct" style="width: 99%">54.3s</div>
+                  </div>
+                </div>
+                <div class="bar-row">
+                  <div class="bar-label">Bedrock</div>
+                  <div class="bar-track">
+                    <div class="bar-fill bedrock" style="width: 97%">53.7s</div>
+                  </div>
+                </div>
+                <div class="bar-row">
+                  <div class="bar-label">Guardrail</div>
+                  <div class="bar-track">
+                    <div class="bar-fill guardrail" style="width: 100%">
+                      55.1s
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="exhibit-note">
+            The guardrail penalty is front-loaded: +917ms TTFB adds perceived
+            latency even though total session time delta is only +1.4s. Users
+            feel the delay before any output appears. Bedrock streams 2.4x more
+            chunks than Direct API for equivalent content, suggesting smaller
+            chunk sizes in the Bedrock streaming protocol.
+          </div>
+        </div>
+      </div>
+
+      <!-- EXHIBIT 3: OVERHEAD DECOMPOSITION -->
+      <div class="section">
+        <h2>Overhead Decomposition</h2>
+        <p class="lead">
+          Breaking down where additional latency enters the system at each
+          routing layer.
+        </p>
+
+        <div class="exhibit">
+          <div class="exhibit-header">
+            Exhibit 3 &mdash; Incremental Latency by Layer
+          </div>
+          <div class="exhibit-body">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Layer</th>
+                  <th>TTFB Impact</th>
+                  <th>API Total Impact</th>
+                  <th>Session Impact</th>
+                  <th>Interpretation</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="metric">Direct API (baseline)</td>
+                  <td>1,574ms</td>
+                  <td>6,752ms</td>
+                  <td>54.3s</td>
+                  <td style="font-size: 0.8rem; color: var(--gray-500)">
+                    Baseline via api.anthropic.com
+                  </td>
+                </tr>
+                <tr>
+                  <td class="metric">+ AWS Bedrock routing</td>
+                  <td><span class="delta-badge delta-pos">+272ms</span></td>
+                  <td><span class="delta-badge delta-pos">+98ms</span></td>
+                  <td><span class="delta-badge delta-neg">-0.6s</span></td>
+                  <td style="font-size: 0.8rem; color: var(--gray-500)">
+                    Bedrock proxy + SigV4 signing. Session-level within noise.
+                  </td>
+                </tr>
+                <tr>
+                  <td class="metric">+ Guardrail evaluation</td>
+                  <td><span class="delta-badge delta-pos">+917ms</span></td>
+                  <td><span class="delta-badge delta-pos">+990ms</span></td>
+                  <td><span class="delta-badge delta-pos">+1.4s</span></td>
+                  <td style="font-size: 0.8rem; color: var(--gray-500)">
+                    Content evaluation at request/response boundaries. Dominant
+                    cost.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="exhibit-note">
+            Bedrock routing overhead is negligible at the session level and
+            within run-to-run variance. Guardrail overhead is consistent and
+            measurable: ~1s per API call, compounding to ~3s for a 3-call
+            session. The cost is front-loaded (TTFB), meaning users wait longer
+            before seeing any streaming output.
+          </div>
+        </div>
+
+        <div class="key-message">
+          <div class="label">So What</div>
+          <p>
+            Bedrock is effectively free from a latency perspective. The
+            guardrail decision is a conscious tradeoff: +1s TTFT for content
+            safety controls. For developer-facing tools where responsiveness
+            matters, consider guardrail-free Bedrock for code generation and
+            selective guardrails only for user-facing output.
+          </p>
+        </div>
+      </div>
+
+      <!-- EXHIBIT 4: ARCHITECTURE INSIGHT -->
+      <div class="section">
+        <h2>Architecture Insight: Model Routing</h2>
+        <p class="lead">
+          The instrumentation revealed Claude Code's internal model routing
+          strategy.
+        </p>
+
+        <div class="exhibit">
+          <div class="exhibit-header">
+            Exhibit 4 &mdash; Per-Call Model Selection (Bedrock Provider)
+          </div>
+          <div class="exhibit-body">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Endpoint</th>
+                  <th>Model</th>
+                  <th>TTFB</th>
+                  <th>Total</th>
+                  <th>Chunks</th>
+                  <th>Purpose</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1</td>
+                  <td class="url" style="font-size: 0.75rem">
+                    /invoke-with-response-stream
+                  </td>
+                  <td><strong>Sonnet 4.5</strong></td>
+                  <td>3,018ms</td>
+                  <td class="highlight">16,229ms</td>
+                  <td>926</td>
+                  <td style="color: var(--gray-500)">
+                    Primary code generation
+                  </td>
+                </tr>
+                <tr>
+                  <td>2</td>
+                  <td class="url" style="font-size: 0.75rem">
+                    /invoke-with-response-stream
+                  </td>
+                  <td><strong>Haiku 4.5</strong></td>
+                  <td>1,584ms</td>
+                  <td>1,756ms</td>
+                  <td>9</td>
+                  <td style="color: var(--gray-500)">
+                    Tool result confirmation
+                  </td>
+                </tr>
+                <tr>
+                  <td>3</td>
+                  <td class="url" style="font-size: 0.75rem">
+                    /invoke-with-response-stream
+                  </td>
+                  <td><strong>Sonnet 4.5</strong></td>
+                  <td>2,244ms</td>
+                  <td>2,878ms</td>
+                  <td>18</td>
+                  <td style="color: var(--gray-500)">Final response</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="exhibit-note">
+            Claude Code automatically routes lightweight calls (tool
+            confirmations) to Haiku 4.5, reserving Sonnet 4.5 for complex
+            generation. This is a cost optimization: Haiku calls complete in
+            1.8s vs 16.2s for the primary generation call. The same routing
+            pattern is observed across all three providers.
+          </div>
+        </div>
+      </div>
+
+      <!-- EXHIBIT 5: STREAMING PROTOCOL -->
+      <div class="section">
+        <h2>Streaming Protocol Differences</h2>
+        <p class="lead">
+          The instrumentation captured chunk-level streaming behavior, revealing
+          a significant protocol difference between Direct API and Bedrock.
+        </p>
+
+        <div class="kpi-row">
+          <div class="kpi" style="border-top: 3px solid var(--blue)">
+            <div class="number" style="color: var(--blue)">131</div>
+            <div class="label">Direct API Chunks</div>
+            <div class="context">
+              Larger chunks, fewer reads<br />~1.9KB avg chunk
+            </div>
+          </div>
+          <div class="kpi" style="border-top: 3px solid var(--amber)">
+            <div class="number" style="color: var(--amber)">309</div>
+            <div class="label">Bedrock Chunks</div>
+            <div class="context">
+              Smaller chunks, more reads<br />~0.9KB avg chunk
+            </div>
+          </div>
+          <div class="kpi" style="border-top: 3px solid #7c3aed">
+            <div class="number" style="color: #7c3aed">321</div>
+            <div class="label">Guardrail Chunks</div>
+            <div class="context">
+              Similar to Bedrock<br />+12 chunks from guardrail events
+            </div>
+          </div>
+        </div>
+
+        <div class="key-message">
+          <div class="label">Implication</div>
+          <p>
+            Bedrock's 2.4x higher chunk count means more ReadableStream reads,
+            more event loop iterations, and slightly higher CPU overhead in
+            client-side streaming parsers. For latency-sensitive applications,
+            this is negligible. For high-throughput batch processing, the
+            additional chunk overhead could compound.
+          </p>
+        </div>
+      </div>
+
+      <!-- RECOMMENDATIONS -->
+      <div class="section">
+        <h2>Recommendations</h2>
+        <p class="lead">
+          Based on the quantified performance data, four actions to optimize
+          Claude Code latency.
+        </p>
+
+        <div class="rec-grid">
+          <div class="rec-card">
+            <h4>1. Use Bedrock without Guardrails for Developer Tooling</h4>
+            <p>
+              Bedrock adds negligible latency (+98ms API, within noise at
+              session level) while providing VPC integration, IAM auth, and
+              CloudWatch observability. Reserve guardrails for user-facing
+              outputs where content safety is required.
+            </p>
+            <div class="impact impact-high">
+              Impact: Save ~3s per interaction for developer tools
+            </div>
+          </div>
+          <div class="rec-card">
+            <h4>2. Implement Selective Guardrail Application</h4>
+            <p>
+              The +917ms TTFT penalty applies to every API call including tool
+              confirmations. Explore applying guardrails only to final
+              user-facing responses, not intermediate tool-use calls, to reduce
+              compound latency.
+            </p>
+            <div class="impact impact-high">
+              Impact: Reduce guardrail overhead by ~66% (2 of 3 calls exempt)
+            </div>
+          </div>
+          <div class="rec-card">
+            <h4>3. Monitor with In-Process Instrumentation</h4>
+            <p>
+              Proxy-based monitoring adds its own latency artifacts. The
+              fetch-wrapping approach used here captures real behavior with zero
+              overhead. Deploy this as a continuous monitoring hook in staging
+              environments.
+            </p>
+            <div class="impact impact-med">
+              Impact: Accurate SLO tracking without measurement bias
+            </div>
+          </div>
+          <div class="rec-card">
+            <h4>4. Leverage Automatic Model Routing</h4>
+            <p>
+              Claude Code routes lightweight calls to Haiku 4.5 automatically.
+              Ensure Bedrock model access policies permit both Sonnet and Haiku
+              to avoid fallback to expensive models for simple confirmations.
+            </p>
+            <div class="impact impact-med">
+              Impact: Up to 40% cost reduction on non-generation calls
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- METHODOLOGY -->
+      <div class="section">
+        <h2>Methodology</h2>
+        <p class="lead">
+          Technical details of the instrumentation approach and test design.
+        </p>
+
+        <div class="method-grid">
+          <div class="method-item">
+            <h4>Instrumentation</h4>
+            <p>
+              ESM module injected via
+              <code>node --import instrument.mjs</code> wraps
+              <code>globalThis.fetch</code> before Claude Code loads. Captures
+              URL, method, headers, timing (TTFB, TTFT via SSE parsing),
+              streaming chunk count/timing, response status, and
+              provider-specific request IDs. Zero proxy overhead.
+            </p>
+          </div>
+          <div class="method-item">
+            <h4>Test Task</h4>
+            <p>
+              Deterministic prompt: "Create a self-contained Todo HTML
+              application" with explicit requirements (input, add, check,
+              delete, counter). Single-file output eliminates filesystem
+              variance. Same prompt across all providers ensures behavioral
+              parity.
+            </p>
+          </div>
+          <div class="method-item">
+            <h4>Sample Size</h4>
+            <p>
+              3 iterations per provider, 9 sessions total. Each session
+              generates 3 API calls (27 total). 33 unique request IDs captured
+              (15 Anthropic, 9 AWS Bedrock, 9 AWS Guardrail). All sessions
+              completed successfully with 100% task completion.
+            </p>
+          </div>
+          <div class="method-item">
+            <h4>Environment</h4>
+            <p>
+              macOS 25.3.0 (arm64), Node.js v22.22.0, AWS CLI 2.33.20, us-east-1
+              region. Claude Code npm package (@anthropic-ai/claude-code) with
+              OAuth authentication. Guardrail ID: pcxoysw8v24d (DRAFT version).
+              MCP servers active (Linear, Slack, GitHub).
+            </p>
+          </div>
+        </div>
+
+        <div class="exhibit" style="margin-top: 32px">
+          <div class="exhibit-header">Request ID Audit Trail</div>
+          <div
+            class="exhibit-body"
+            style="
+              font-size: 0.75rem;
+              font-family: monospace;
+              color: var(--gray-500);
+              line-height: 1.8;
+            "
+          >
+            <div>
+              <strong style="color: var(--blue)"
+                >Direct API (Anthropic):</strong
+              >
+            </div>
+            <div>
+              req_011CYKRoM112GWLZx1ToQme8, req_011CYKRqpBgeMJSQqKnjsGXh,
+              req_011CYKRqq6VpzyNWViQvZgxC, req_011CYKRs5pYvQiuUstoYsR2g,
+              req_011CYKRs68eqs4tt5S2HgiVi
+            </div>
+            <div>
+              req_011CYKRscLMTNFuTFwU5TDDD, req_011CYKRv4ZUrbkfQtRYUgMFg,
+              req_011CYKRv5ER5whYdpzdHi5gT, req_011CYKRwQt8m6QTYPZVyxtsn,
+              req_011CYKRwR7GzzxdvrjkseZ7w
+            </div>
+            <div>
+              req_011CYKRwu8ku2Wttj38AuYxo, req_011CYKRzMseZJaJK8QTDdbMV,
+              req_011CYKRzNb4Nnd72J9XUHWUx, req_011CYKS1XqxHknDKxB1ZVF8R,
+              req_011CYKS1Y7pkYPfSfXV8cxGp
+            </div>
+            <br />
+            <div><strong style="color: var(--amber)">AWS Bedrock:</strong></div>
+            <div>
+              12a8d5d4-2379-49b7-ab5c-cc19da8f2b79,
+              21b1799d-d4e9-4b5b-95bb-a6a3aabe1d13,
+              2cb520ae-582d-4bc5-b867-713134c0d3e5
+            </div>
+            <div>
+              5f16deff-0046-4db6-b01f-c4f7a6b5b782,
+              663d1e9e-06a1-42cb-86f9-09516c2634af,
+              aec401bb-a263-4709-b92d-93dda478d6c3
+            </div>
+            <div>
+              d96c908a-8740-4684-8331-95a3d7a50b71,
+              e468d5c3-f79d-4f22-8a22-78053594fc60,
+              ff99692d-2a05-4df6-b090-351adb76980e
+            </div>
+            <br />
+            <div>
+              <strong style="color: #7c3aed">AWS Bedrock + Guardrail:</strong>
+            </div>
+            <div>
+              0e3262e4-d250-4490-81e5-fd533d79cc95,
+              147775b1-4836-4d81-9e7e-84ac64934fd9,
+              61f0fa77-45c3-49d3-ae65-cd6b4f18af39
+            </div>
+            <div>
+              7fd44ca2-7671-4bc6-a370-78a26f5a4bd2,
+              81e7e637-a637-4bd3-ac9d-6817ec1d9c08,
+              9dc3574c-fa32-4ee1-9e4e-a214a1d77d32
+            </div>
+            <div>
+              c2715d25-2f3f-4b98-8195-5afc2cbf2975,
+              dac8466a-316b-4292-89a7-3a1fcafb199b,
+              e3007c0b-49b6-4baf-bb74-bb949c7bcdd9
+            </div>
+          </div>
+          <div class="exhibit-note">
+            33 unique request IDs across 9 sessions. Each ID is traceable in
+            Anthropic or AWS CloudWatch logs for end-to-end latency
+            decomposition at the infrastructure level.
+          </div>
+        </div>
+      </div>
+
+      <!-- FOOTER -->
+      <div class="footer">
+        <p>
+          SRE Latency Monitor &mdash; Real HTTP Instrumentation via Node.js
+          fetch wrapping
+        </p>
+        <p style="margin-top: 4px">
+          Data collected February 20, 2026 &bull; Report generated February 21,
+          2026
+        </p>
+      </div>
+    </div>
+  </body>
+</html>

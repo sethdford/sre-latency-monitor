@@ -20,6 +20,12 @@
 #
 # Usage: latency_budget.sh [--iterations N] [--bedrock-region REGION]
 #        [--direct-model ID] [--bedrock-model ID] [--output FILE]
+#        [--real] [--synthetic]
+#
+# Modes:
+#   --synthetic  (default) Use direct curl/aws CLI calls for quick measurement
+#   --real       Run actual Claude Code sessions with fetch instrumentation
+#                to capture real HTTP behavior (requires npm claude-code)
 #
 # Requires: ANTHROPIC_API_KEY (for Direct), AWS credentials (for Bedrock)
 # Dependencies: bash, curl, jq, perl, aws CLI
@@ -38,6 +44,7 @@ BEDROCK_MODEL="us.anthropic.claude-haiku-4-5-20251001-v1:0"
 OUTPUT_FILE=""
 WARMUP=2  # discard first N requests (cold start)
 PROVIDER=""  # empty = auto-detect, "direct" or "bedrock" to force one
+MEASURE_MODE="synthetic"  # synthetic (curl/aws) or real (instrumented claude)
 
 # --- Argument parsing ---
 while [ $# -gt 0 ]; do
@@ -49,6 +56,8 @@ while [ $# -gt 0 ]; do
     --output|-o)         OUTPUT_FILE="$2"; shift 2 ;;
     --warmup)            WARMUP="$2"; shift 2 ;;
     --provider|-p)       PROVIDER="$2"; shift 2 ;;
+    --real)              MEASURE_MODE="real"; shift ;;
+    --synthetic)         MEASURE_MODE="synthetic"; shift ;;
     *) shift ;;
   esac
 done
@@ -317,6 +326,7 @@ run_bedrock_timed() {
 echo "============================================" >&2
 echo "  SRE Latency Budget Analysis" >&2
 echo "============================================" >&2
+echo "  Mode: $MEASURE_MODE" >&2
 echo "  Prompt: fixed (count 1-20)" >&2
 echo "  Max tokens: $MAX_TOKENS" >&2
 echo "  Iterations: $ITERATIONS (+$WARMUP warmup)" >&2
@@ -365,8 +375,86 @@ if [ "$HAS_BEDROCK" = "true" ]; then
   echo "" >&2
 fi
 
-# Run Direct API benchmark
-if [ "$HAS_DIRECT" = "true" ]; then
+# ============================================================================
+# --real mode: use instrumented Claude Code sessions
+# ============================================================================
+if [ "$MEASURE_MODE" = "real" ]; then
+  RUNNER="$SCRIPT_DIR/run-instrumented.sh"
+  HTTP_LOG="${SRE_HTTP_LOG:-/tmp/sre-http-calls.jsonl}"
+
+  if [ ! -x "$RUNNER" ]; then
+    echo "ERROR: run-instrumented.sh not found at $RUNNER" >&2
+    echo "  --real mode requires the fetch instrumentation module." >&2
+    exit 1
+  fi
+
+  echo "  Mode: REAL (instrumented Claude Code sessions)" >&2
+  echo "" >&2
+
+  # Run instrumented sessions for each available provider
+  for prov_name in direct bedrock; do
+    if [ "$prov_name" = "direct" ] && [ "$HAS_DIRECT" = "false" ]; then continue; fi
+    if [ "$prov_name" = "bedrock" ] && [ "$HAS_BEDROCK" = "false" ]; then continue; fi
+
+    echo "--- Real session: $prov_name ---" >&2
+    for i in $(seq 1 "$ITERATIONS"); do
+      printf "  Run %d/%d..." "$i" "$ITERATIONS" >&2
+      > "$HTTP_LOG"
+
+      local_exit=0
+      if [ "$prov_name" = "bedrock" ]; then
+        env CLAUDE_CODE_USE_BEDROCK=1 AWS_REGION="$BEDROCK_REGION" \
+          bash "$RUNNER" -p "$PROMPT" \
+            --dangerously-skip-permissions --max-turns 3 --no-session-persistence \
+            > /dev/null 2>&1 || local_exit=$?
+      else
+        env -u CLAUDE_CODE_USE_BEDROCK \
+          bash "$RUNNER" -p "$PROMPT" \
+            --dangerously-skip-permissions --max-turns 3 --no-session-persistence \
+            > /dev/null 2>&1 || local_exit=$?
+      fi
+
+      # Extract timing from HTTP log
+      if [ -f "$HTTP_LOG" ] && [ -s "$HTTP_LOG" ]; then
+        jq -s '
+          [.[] | select(.type != "session_metadata" and .provider != null)
+                | select(.url | test("/messages|/converse|/invoke"))] as $api |
+          [.[] | select(.streaming == true)] as $st |
+          {
+            total_ms: (if ($api | length) > 0 then [$api[].total_ms // 0] | add else 0 end),
+            ttfb_ms: (if ($api | length) > 0 then [$api[].ttfb_ms // 0] | add / length else 0 end),
+            ttft_ms: (if ($st | length) > 0 then [$st[].stream_metrics.ttft_ms // 0] | add / length else 0 end),
+            generation_ms: (if ($st | length) > 0 and ($st[0].stream_metrics.ttft_ms // 0) > 0 then
+              [$st[] | (.total_ms // 0) - (.stream_metrics.ttft_ms // 0)] | add / length
+            else 0 end),
+            output_tokens: 0,
+            input_tokens: 0,
+            token_chunks: (if ($st | length) > 0 then [$st[].stream_metrics.chunk_count // 0] | add else 0 end),
+            tokens_per_second: 0,
+            http_calls: ([$api[] | length] | add // 0),
+            request_ids: [$api[] | .response_headers.anthropic_request_id // .response_headers.aws_request_id // empty]
+          }
+        ' "$HTTP_LOG" > "$TMPDIR/${prov_name}_${i}.json" 2>/dev/null
+        total=$(jq -r '.total_ms // 0' "$TMPDIR/${prov_name}_${i}.json")
+        echo " ${total}ms (exit: $local_exit)" >&2
+      else
+        echo " (no HTTP data)" >&2
+        echo '{"error":"no HTTP calls captured"}' > "$TMPDIR/${prov_name}_${i}.json"
+      fi
+
+      [ "$i" -lt "$ITERATIONS" ] && sleep 2
+    done
+    echo "" >&2
+  done
+
+  # Use the same aggregation and reporting as synthetic mode
+  # (the JSON format is compatible)
+  WARMUP=0  # no warmup in real mode
+  TOTAL_RUNS=$ITERATIONS
+fi
+
+# Run Direct API benchmark (synthetic mode)
+if [ "$MEASURE_MODE" = "synthetic" ] && [ "$HAS_DIRECT" = "true" ]; then
   echo "--- Anthropic Direct API ($DIRECT_MODEL) ---" >&2
   for i in $(seq 1 "$TOTAL_RUNS"); do
     if [ "$i" -le "$WARMUP" ]; then
@@ -389,8 +477,8 @@ if [ "$HAS_DIRECT" = "true" ]; then
   echo "" >&2
 fi
 
-# Run Bedrock benchmark
-if [ "$HAS_BEDROCK" = "true" ]; then
+# Run Bedrock benchmark (synthetic mode)
+if [ "$MEASURE_MODE" = "synthetic" ] && [ "$HAS_BEDROCK" = "true" ]; then
   echo "--- AWS Bedrock ($BEDROCK_MODEL) ---" >&2
   for i in $(seq 1 "$TOTAL_RUNS"); do
     if [ "$i" -le "$WARMUP" ]; then

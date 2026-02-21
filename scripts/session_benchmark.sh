@@ -17,10 +17,15 @@
 
 set -eo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNNER="$SCRIPT_DIR/run-instrumented.sh"
+HTTP_LOG="${SRE_HTTP_LOG:-/tmp/sre-http-calls.jsonl}"
+
 TASK_LEVEL="medium"
 OUTPUT_FILE=""
 BEDROCK_REGION="${AWS_REGION:-us-east-1}"
 SESSION_MODEL=""
+USE_INSTRUMENTED=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -28,6 +33,7 @@ while [ $# -gt 0 ]; do
     --output|-o) OUTPUT_FILE="$2"; shift 2 ;;
     --region|-r) BEDROCK_REGION="$2"; shift 2 ;;
     --model|-m)  SESSION_MODEL="$2"; shift 2 ;;
+    --instrumented) USE_INSTRUMENTED=true; shift ;;
     --help|-h)
       echo "Usage: session_benchmark.sh [--task simple|medium|complex] [--output FILE]"
       echo ""
@@ -216,25 +222,51 @@ run_session() {
   [ -n "$resolved_model" ] && model_flag="--model $resolved_model"
 
   echo "  Model: ${resolved_model:-auto}" >&2
+  [ "$USE_INSTRUMENTED" = "true" ] && echo "  Mode: instrumented (HTTP capture)" >&2
+
+  # Clear HTTP log for this run
+  [ "$USE_INSTRUMENTED" = "true" ] && > "$HTTP_LOG"
 
   if [ "$provider" = "bedrock" ]; then
-    output=$(env \
-      CLAUDE_CODE_USE_BEDROCK=1 \
-      AWS_REGION="$BEDROCK_REGION" \
-      CLAUDE_CODE_MAX_OUTPUT_TOKENS=16384 \
-      claude -p "$TASK_PROMPT" \
+    if [ "$USE_INSTRUMENTED" = "true" ] && [ -x "$RUNNER" ]; then
+      output=$(env \
+        CLAUDE_CODE_USE_BEDROCK=1 \
+        AWS_REGION="$BEDROCK_REGION" \
+        CLAUDE_CODE_MAX_OUTPUT_TOKENS=16384 \
+        bash "$RUNNER" -p "$TASK_PROMPT" \
+          $model_flag \
+          --dangerously-skip-permissions \
+          --max-turns 20 \
+          --no-session-persistence \
+          --add-dir /tmp/sre-bench 2>&1) || exit_code=$?
+    else
+      output=$(env \
+        CLAUDE_CODE_USE_BEDROCK=1 \
+        AWS_REGION="$BEDROCK_REGION" \
+        CLAUDE_CODE_MAX_OUTPUT_TOKENS=16384 \
+        claude -p "$TASK_PROMPT" \
+          $model_flag \
+          --dangerously-skip-permissions \
+          --max-turns 20 \
+          --no-session-persistence \
+          --add-dir /tmp/sre-bench 2>&1) || exit_code=$?
+    fi
+  else
+    if [ "$USE_INSTRUMENTED" = "true" ] && [ -x "$RUNNER" ]; then
+      output=$(bash "$RUNNER" -p "$TASK_PROMPT" \
         $model_flag \
         --dangerously-skip-permissions \
         --max-turns 20 \
         --no-session-persistence \
         --add-dir /tmp/sre-bench 2>&1) || exit_code=$?
-  else
-    output=$(claude -p "$TASK_PROMPT" \
-      $model_flag \
-      --dangerously-skip-permissions \
-      --max-turns 20 \
-      --no-session-persistence \
-      --add-dir /tmp/sre-bench 2>&1) || exit_code=$?
+    else
+      output=$(claude -p "$TASK_PROMPT" \
+        $model_flag \
+        --dangerously-skip-permissions \
+        --max-turns 20 \
+        --no-session-persistence \
+        --add-dir /tmp/sre-bench 2>&1) || exit_code=$?
+    fi
   fi
 
   t_end=$(ms_now)
@@ -290,6 +322,32 @@ run_session() {
     ' /tmp/sre-latency-monitor.jsonl 2>/dev/null)
   fi
 
+  # Capture HTTP instrumentation data if available
+  local http_stats="{}"
+  if [ "$USE_INSTRUMENTED" = "true" ] && [ -f "$HTTP_LOG" ] && [ -s "$HTTP_LOG" ]; then
+    cp "$HTTP_LOG" "/tmp/sre-bench/http-${provider}.jsonl" 2>/dev/null
+
+    http_stats=$(jq -s '
+      [.[] | select(.type != "session_metadata" and .provider != null)] as $calls |
+      [$calls[] | select(.url | test("/messages|/converse|/invoke"))] as $api |
+      [$calls[] | select(.streaming == true)] as $st |
+      [$calls[] | select(.provider | test("mcp"))] as $mcp |
+      {
+        total_http_calls: ($calls | length),
+        api_calls: ($api | length),
+        mcp_calls: ($mcp | length),
+        api_ttfb_mean_ms: (if ($api | length) > 0 then [$api[].ttfb_ms // 0] | add / length | . * 100 | round / 100 else null end),
+        stream_ttft_mean_ms: (if ($st | length) > 0 then [$st[].stream_metrics.ttft_ms // 0] | add / length | . * 100 | round / 100 else null end),
+        stream_chunks: (if ($st | length) > 0 then [$st[].stream_metrics.chunk_count // 0] | add else null end),
+        mcp_total_ms: (if ($mcp | length) > 0 then [$mcp[].total_ms // 0] | add | . * 100 | round / 100 else null end),
+        request_ids: {
+          anthropic: [$calls[] | .response_headers.anthropic_request_id // empty] | unique,
+          aws: [$calls[] | .response_headers.aws_request_id // empty] | unique
+        }
+      }
+    ' "$HTTP_LOG" 2>/dev/null || echo '{}')
+  fi
+
   # Compute model vs tool time
   local tool_total_ms model_time_ms
   tool_total_ms=$(echo "$tool_stats" | jq '.total_tool_ms // 0')
@@ -303,13 +361,15 @@ run_session() {
     --argjson model_time_ms "$model_time_ms" \
     --argjson exit_code "$exit_code" \
     --argjson tools "$tool_stats" \
+    --argjson http "$http_stats" \
     '{
       provider: $provider,
       label: $label,
       total_session_ms: $total_ms,
       model_time_ms: $model_time_ms,
       exit_code: $exit_code,
-      tool_budget: $tools
+      tool_budget: $tools,
+      http_instrumentation: $http
     }'
 }
 
